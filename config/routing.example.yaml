@@ -1,0 +1,79 @@
+# cf-email-gateway routing config (example)
+# Copy to config/routing.yaml or put contents in wrangler secret ROUTING_YAML.
+# Format: YAML 1.2 — comments allowed.
+#
+# Merge order at runtime:
+#   defaults.*  ←  domains.<apex>.*  ←  rule / destination overrides
+# Inbound delivery is always cf_forward (optional X-CFEG reply tokens).
+# domains.*.send_as.enabled gates outbound compose / send-proxy / reply-hop From.
+#
+# Retention / auto-purge: NOT in v1. Data kept until manual delete.
+
+version: 1
+
+# Fallback when no rule matches. Omit for ingest-only on unmatched mail.
+default_inbox: me@gmail.com
+
+archive:
+  # When true: try R2 every run until stored; still deliver same run;
+  # Worker SUCCESS only if archive_ok AND required dests succeeded (B9).
+  enabled: true
+
+compose:
+  default_from: me@example.com
+
+# Mint r+ tokens + X-CFEG-* on every cf_forward (browser extension reads these)
+reply_tokens:
+  enabled: true
+
+defaults:
+  provider: smtp
+  send_as:
+    # false → inbound stays cf_forward (recommended)
+    # true  → allows outbound From on domains that enable send_as
+    enabled: false
+    multiparty: true
+  reply_as: {}
+
+# Who may use r+ reply hop and send-proxy (Gmail From + CF auth evidence).
+token_auth:
+  authorized_from:
+    - me@gmail.com
+  # - other@gmail.com
+
+# Per receiving apex. Unlisted domains still use the gateway + defaults.
+# Enable send_as for outbound From / send-proxy / reply hop on that apex.
+domains:
+  example.com:
+    send_as:
+      enabled: true
+    reply_as: {}
+
+  other.example:
+    send_as:
+      enabled: true
+      domain: example.com  # hello@other.example → From hello@example.com
+    reply_as:
+      domain: example.com
+
+  forward-only.example:
+    send_as:
+      enabled: false
+    reply_as:
+      enabled: false
+
+# Optional per-address routes. First address match wins, then catch_all.
+# default_inbox is always added on rule match unless skip_default_inbox: true.
+rules:
+  - id: billing
+    match:
+      type: address  # address | catch_all
+      value: billing@example.com
+    destinations:
+      - email: finance@gmail.com
+
+  - id: catch-example
+    match:
+      type: catch_all
+    destinations:
+      - email: me@gmail.com

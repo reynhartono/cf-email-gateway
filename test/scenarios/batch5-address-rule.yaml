@@ -1,0 +1,20 @@
+# Address rule merges default_inbox unless skip_default_inbox
+version: 1
+default_inbox: me@gmail.com
+archive:
+  enabled: true
+defaults:
+  provider: smtp
+  send_as:
+    enabled: false
+token_auth:
+  authorized_from:
+    - me@gmail.com
+domains: {}
+rules:
+  - id: special
+    match:
+      type: address
+      value: special@example.com
+    destinations:
+      - email: other@gmail.com

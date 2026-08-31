@@ -1,0 +1,20 @@
+# Multi destination cf_forward
+version: 1
+default_inbox: me@gmail.com
+archive:
+  enabled: true
+defaults:
+  provider: smtp
+  send_as:
+    enabled: false
+token_auth:
+  authorized_from:
+    - me@gmail.com
+domains: {}
+rules:
+  - id: multi
+    match:
+      type: catch_all
+    destinations:
+      - email: me@gmail.com
+      - email: other@gmail.com

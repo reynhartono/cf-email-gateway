@@ -1,0 +1,854 @@
+/**
+ * Core inbound pipeline: archive B9, cf_forward + X-CFEG, send-proxy, reply hop.
+ */
+
+import { archiveEnabled, resolveDriver, recipientDomain, FEATURES, resolveSendAs } from "./config.js";
+import {
+  dedupeKeyHex,
+  getHeader,
+  randomId,
+  resolveDestinations,
+  sha256Hex,
+} from "./util.js";
+import * as db from "./db.js";
+import { putArchive } from "./archive.js";
+import { cfForward } from "./providers/cf_forward.js";
+import { sendOutboundMime } from "./providers/send_outbound.js";
+import { resolveMailFrom } from "./mail_from.js";
+import {
+  parseSendProxyAddress,
+  isAuthorizedSender,
+} from "./send_proxy.js";
+import { buildForwardTokenHeaders } from "./forward_headers.js";
+import {
+  parseReplyTokenAddress,
+  generateToken,
+  extractExternalParticipants,
+  cfAuthLooksPass,
+  formatSmtpMailbox,
+} from "./reply_tokens.js";
+import { rebuildOutboundMime, subjectFromRaw } from "./mime_rebuild.js";
+import { logger } from "./log.js";
+
+/**
+ * @param {object} env
+ * @param {ForwardableEmailMessage} message
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {{ deliver?: Function, archivePut?: Function, smtpSend?: Function }} [hooks]
+ */
+export async function handleInbound(env, message, config, hooks = {}) {
+  const invocationId = randomId();
+  const now = Date.now();
+
+  const rawAb = await new Response(message.raw).arrayBuffer();
+  const rawBytes = new Uint8Array(rawAb);
+  const rawText = new TextDecoder("utf-8", { fatal: false }).decode(rawBytes);
+  const rawSha = await sha256Hex(rawAb);
+  const messageId = getHeader(rawText, "message-id") || "";
+  const subjectHdr = getHeader(rawText, "subject") || "";
+  const envelopeFrom = message.from || "";
+  const envelopeTo = message.to || "";
+  const domain = recipientDomain(envelopeTo);
+
+  logger.info("inbound.start", {
+    invocationId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    subject: subjectHdr?.slice(0, 80),
+    rawSize: rawBytes.byteLength,
+  });
+
+  const replyTok = parseReplyTokenAddress(envelopeTo);
+  if (replyTok) {
+    logger.info("inbound.route", { invocationId, kind: "reply_token", token: replyTok.token, suffix: replyTok.suffix });
+    return handleReplyHop(env, message, config, hooks, {
+      invocationId,
+      now,
+      rawAb,
+      rawBytes,
+      rawText,
+      rawSha,
+      messageId,
+      envelopeFrom,
+      envelopeTo,
+      domain,
+      replyTok,
+    });
+  }
+
+  const proxy = parseSendProxyAddress(envelopeTo);
+  if (proxy) {
+    logger.info("inbound.route", {
+      invocationId,
+      kind: "send_proxy",
+      fromEmail: proxy.fromEmail,
+      rcptEmail: proxy.rcptEmail,
+    });
+    return handleSendProxy(env, message, config, hooks, {
+      invocationId,
+      now,
+      rawAb,
+      rawBytes,
+      rawText,
+      rawSha,
+      messageId,
+      envelopeFrom,
+      envelopeTo,
+      domain,
+      proxy,
+    });
+  }
+
+
+  const dedupeKey = await dedupeKeyHex(envelopeFrom, envelopeTo, messageId, rawSha);
+
+  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const isNew = !inbound;
+
+  const matched = resolveDestinations(config, envelopeTo, resolveDriver);
+  const wantArchive = archiveEnabled(config, matched.rule);
+  logger.info("inbound.destinations", {
+    invocationId,
+    ruleId: matched.ruleId,
+    dests: matched.destinations.map((d) => ({ email: d.email, method: d.method })),
+    wantArchive,
+  });
+
+  if (isNew) {
+    inbound = {
+      id: randomId(),
+      dedupe_key: dedupeKey,
+      received_at: now,
+      updated_at: now,
+      envelope_from: envelopeFrom,
+      envelope_to: envelopeTo,
+      recipient_domain: domain,
+      subject: subjectHdr,
+      message_id: messageId,
+      raw_sha256: rawSha,
+      archive_enabled: wantArchive ? 1 : 0,
+      r2_key: null,
+      raw_size: rawBytes.byteLength,
+      archived_at: null,
+      rule_id: matched.ruleId,
+      status: "pending_deliveries",
+      last_error: null,
+    };
+    await db.insertInbound(env.DB, inbound);
+  }
+
+  let archiveOk = !wantArchive || Boolean(inbound.r2_key);
+  if (wantArchive && !inbound.r2_key) {
+    const put = hooks.archivePut || putArchive;
+    const res = await put(env.ARCHIVE, {
+      id: inbound.id,
+      recipient_domain: domain,
+      raw: rawAb,
+      raw_size: rawBytes.byteLength,
+    });
+    if (res.ok) {
+      await db.updateInbound(env.DB, inbound.id, {
+        r2_key: res.r2_key,
+        archived_at: Date.now(),
+        archive_enabled: 1,
+      });
+      inbound.r2_key = res.r2_key;
+      archiveOk = true;
+    } else {
+      archiveOk = false;
+      await db.updateInbound(env.DB, inbound.id, {
+        last_error: `archive_failed: ${res.error || "unknown"}`,
+      });
+    }
+  }
+
+  let destinations = matched.destinations;
+
+  if (!destinations.length) {
+    if (archiveOk || !wantArchive) {
+      await db.updateInbound(env.DB, inbound.id, {
+        status: "ingested_only",
+        last_error: null,
+      });
+      return { ok: true, status: "ingested_only", inboundId: inbound.id };
+    }
+    const err = new Error("archive_required_failed");
+    err.retryable = true;
+    throw err;
+  }
+
+  const targets = await db.ensureTargets(env.DB, inbound.id, destinations);
+  for (const t of targets) {
+    t.inbound_id = inbound.id;
+    if (!t.method) {
+      t.method = resolveDriver(config, envelopeTo, { email: t.destination });
+    }
+  }
+
+  // Mint reply token once per inbound for X-CFEG-* on all cf_forwards
+  let forwardTokenMeta = null;
+  const wantTokens =
+    FEATURES.reply_tokens_on_forward &&
+    config.reply_tokens?.enabled !== false;
+  if (wantTokens) {
+    try {
+      forwardTokenMeta = await mintForwardReplyToken(env, config, {
+        inboundId: inbound.id,
+        envelopeTo,
+        domain,
+        rawText,
+      });
+      logger.info("forward.token", {
+        invocationId,
+        token: forwardTokenMeta?.token,
+        replyTo: forwardTokenMeta
+          ? `r+${forwardTokenMeta.token}@${forwardTokenMeta.ourDomain}`
+          : null,
+      });
+    } catch (e) {
+      logger.warn("forward.token_fail", { error: e?.message || String(e) });
+    }
+  }
+
+  const pending = targets.filter((t) => t.state !== "succeeded");
+
+  const deliverFn = hooks.deliver || defaultDeliver;
+  const errors = [];
+
+  for (const t of pending) {
+    const attemptNumber = (t.attempt_count || 0) + 1;
+    const started = Date.now();
+    let result;
+    try {
+      result = await deliverFn(env, message, t, config, {
+        rawText,
+        rawBytes,
+        rawAb,
+        forwardTokenMeta,
+      });
+    } catch (e) {
+      result = { ok: false, error: e?.message || String(e) };
+    }
+    const finished = Date.now();
+    await db.insertAttempt(env.DB, {
+      id: randomId(),
+      inbound_id: inbound.id,
+      delivery_target_id: t.id,
+      destination: t.destination,
+      attempt_number: attemptNumber,
+      started_at: started,
+      finished_at: finished,
+      success: result.ok,
+      error: result.error || null,
+      method: t.method,
+      provider: t.provider,
+      send_as: t.send_as,
+      provider_message_id: result.providerMessageId || null,
+      provider_status:
+        result.providerStatus != null ? String(result.providerStatus) : null,
+      invocation_id: invocationId,
+    });
+    if (result.ok) {
+      await db.updateTarget(env.DB, t.id, {
+        state: "succeeded",
+        attempt_count: attemptNumber,
+        last_error: null,
+        last_provider_message_id: result.providerMessageId || null,
+        last_attempt_at: finished,
+        succeeded_at: finished,
+      });
+      t.state = "succeeded";
+    } else {
+      await db.updateTarget(env.DB, t.id, {
+        state: "failed",
+        attempt_count: attemptNumber,
+        last_error: result.error || "deliver_failed",
+        last_attempt_at: finished,
+      });
+      t.state = "failed";
+      errors.push(`${t.destination}: ${result.error || "fail"}`);
+    }
+  }
+
+  const allTargets = await db.listTargets(env.DB, inbound.id);
+  const deliveryOk = allTargets.every((t) => t.state === "succeeded");
+  const row = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const finalArchiveOk = !wantArchive || Boolean(row?.r2_key);
+
+  if (deliveryOk && finalArchiveOk) {
+    await db.updateInbound(env.DB, inbound.id, {
+      status: "completed",
+      last_error: null,
+    });
+    return { ok: true, status: "completed", inboundId: inbound.id };
+  }
+
+  const parts = [];
+  if (!finalArchiveOk) parts.push("archive_missing");
+  if (!deliveryOk) parts.push(errors.join("; ") || "delivery_incomplete");
+  await db.updateInbound(env.DB, inbound.id, {
+    status: "pending_deliveries",
+    last_error: parts.join(" | "),
+  });
+  const err = new Error(parts.join(" | "));
+  err.retryable = true;
+  throw err;
+}
+
+/**
+ * Gmail (authorized) → special To → SMTP as alias@ourdomain → real recipient.
+ * Does not CF-forward to default_inbox (proxy only).
+ */
+async function handleSendProxy(env, message, config, hooks, ctx) {
+  const {
+    invocationId,
+    now,
+    rawAb,
+    rawBytes,
+    rawText,
+    rawSha,
+    messageId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    proxy,
+  } = ctx;
+
+  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
+  const allow = config.token_auth?.authorized_from || [];
+  if (
+    !isAuthorizedSender(envelopeFrom, allow) &&
+    !isAuthorizedSender(headerFrom, allow)
+  ) {
+    // Reject — do not open relay
+    try {
+      message.setReject?.(
+        "send-proxy: sender not authorized (add Gmail to token_auth.authorized_from)",
+      );
+    } catch {
+      /* ignore */
+    }
+    const err = new Error("send_proxy_unauthorized");
+    err.retryable = false;
+    throw err;
+  }
+
+  const resolved = resolveMailFrom(config, proxy.fromEmail);
+  if (!resolved.ok) {
+    const err = new Error(`send_proxy_from: ${resolved.error}`);
+    err.retryable = false;
+    throw err;
+  }
+
+  const subject = subjectFromRaw(rawText);
+  const dedupeKey = await dedupeKeyHex(
+    envelopeFrom,
+    envelopeTo,
+    messageId,
+    rawSha,
+  );
+
+  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const isNew = !inbound;
+  const wantArchive = archiveEnabled(config, null);
+
+  if (isNew) {
+    inbound = {
+      id: randomId(),
+      dedupe_key: dedupeKey,
+      received_at: now,
+      updated_at: now,
+      envelope_from: envelopeFrom,
+      envelope_to: envelopeTo,
+      recipient_domain: domain,
+      subject,
+      message_id: messageId,
+      raw_sha256: rawSha,
+      archive_enabled: wantArchive ? 1 : 0,
+      r2_key: null,
+      raw_size: rawBytes.byteLength,
+      archived_at: null,
+      rule_id: "send_proxy",
+      status: "pending_deliveries",
+      last_error: null,
+    };
+    await db.insertInbound(env.DB, inbound);
+  }
+
+  let archiveOk = !wantArchive || Boolean(inbound.r2_key);
+  if (wantArchive && !inbound.r2_key) {
+    const put = hooks.archivePut || putArchive;
+    const res = await put(env.ARCHIVE, {
+      id: inbound.id,
+      recipient_domain: domain,
+      raw: rawAb,
+      raw_size: rawBytes.byteLength,
+    });
+    if (res.ok) {
+      await db.updateInbound(env.DB, inbound.id, {
+        r2_key: res.r2_key,
+        archived_at: Date.now(),
+        archive_enabled: 1,
+      });
+      inbound.r2_key = res.r2_key;
+      archiveOk = true;
+    } else {
+      archiveOk = false;
+    }
+  }
+
+  const destinations = [
+    {
+      email: proxy.rcptEmail,
+      method: "provider_send",
+      provider: "smtp",
+      send_as: resolved.mailFrom,
+    },
+  ];
+  const targets = await db.ensureTargets(env.DB, inbound.id, destinations);
+  const pending = targets.filter((t) => t.state !== "succeeded");
+  const sendFn = hooks.smtpSend || sendOutboundMime;
+  const errors = [];
+
+  const toField = proxy.rcptDisplay
+    ? formatSmtpMailbox(proxy.rcptDisplay, proxy.rcptEmail)
+    : proxy.rcptEmail;
+  const fromField = proxy.aliasDisplay
+    ? formatSmtpMailbox(proxy.aliasDisplay, resolved.mailFrom)
+    : resolved.mailFrom;
+  const mimeOut = rebuildOutboundMime({
+    rawText,
+    from: fromField,
+    to: toField,
+    subject: null,
+    keepMessageId: true,
+  });
+
+  for (const t of pending) {
+    const attemptNumber = (t.attempt_count || 0) + 1;
+    const started = Date.now();
+    const result = await sendFn(env, {
+      mailFrom: resolved.mailFrom,
+      fromName: proxy.aliasDisplay,
+      to: proxy.rcptEmail,
+      mimeText: mimeOut,
+    });
+    const finished = Date.now();
+    await db.insertAttempt(env.DB, {
+      id: randomId(),
+      inbound_id: inbound.id,
+      delivery_target_id: t.id,
+      destination: t.destination,
+      attempt_number: attemptNumber,
+      started_at: started,
+      finished_at: finished,
+      success: result.ok,
+      error: result.error || null,
+      method: "provider_send",
+      provider: "smtp",
+      send_as: resolved.mailFrom,
+      provider_message_id: result.providerMessageId || null,
+      provider_status:
+        result.providerStatus != null ? String(result.providerStatus) : null,
+      invocation_id: invocationId,
+    });
+    if (result.ok) {
+      await db.updateTarget(env.DB, t.id, {
+        state: "succeeded",
+        attempt_count: attemptNumber,
+        last_error: null,
+        last_provider_message_id: result.providerMessageId || null,
+        last_attempt_at: finished,
+        succeeded_at: finished,
+      });
+      t.state = "succeeded";
+    } else {
+      await db.updateTarget(env.DB, t.id, {
+        state: "failed",
+        attempt_count: attemptNumber,
+        last_error: result.error || "smtp_failed",
+        last_attempt_at: finished,
+      });
+      errors.push(result.error || "fail");
+    }
+  }
+
+  const allTargets = await db.listTargets(env.DB, inbound.id);
+  const deliveryOk = allTargets.every((t) => t.state === "succeeded");
+  const finalArchiveOk = !wantArchive || Boolean(inbound.r2_key) || archiveOk;
+
+  // Re-read archive key
+  const row = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const archOk = !wantArchive || Boolean(row?.r2_key);
+
+  if (deliveryOk && archOk) {
+    await db.updateInbound(env.DB, inbound.id, {
+      status: "send_proxy_completed",
+      last_error: null,
+      rule_id: "send_proxy",
+    });
+    return {
+      ok: true,
+      status: "send_proxy_completed",
+      inboundId: inbound.id,
+      mailFrom: resolved.mailFrom,
+      to: proxy.rcptEmail,
+    };
+  }
+
+  const msg = [
+    !archOk ? "archive_missing" : null,
+    !deliveryOk ? errors.join("; ") || "delivery_incomplete" : null,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  await db.updateInbound(env.DB, inbound.id, {
+    status: "pending_deliveries",
+    last_error: msg,
+  });
+  const err = new Error(msg);
+  err.retryable = true;
+  throw err;
+}
+
+async function defaultDeliver(env, message, target, config, rawCtx = {}) {
+  let method = target.method;
+  if (!method && config) {
+    method = resolveDriver(config, message.to || "", {
+      email: target.destination,
+    });
+    target.method = method;
+  }
+  if (method === "cf_forward") {
+    let headers;
+    if (rawCtx.forwardTokenMeta) {
+      headers = buildForwardTokenHeaders(rawCtx.forwardTokenMeta);
+    }
+    return cfForward(message, target.destination, headers);
+  }
+  if (method === "provider_send" || method === "smtp") {
+    return {
+      ok: false,
+      error: "provider_send on normal inbound not wired; use send-proxy or r+ token",
+    };
+  }
+  return {
+    ok: false,
+    error: `unsupported method: ${method}`,
+  };
+}
+
+/**
+ * Create reply_routes row + participants for X-CFEG forward headers / later r+ hop.
+ */
+async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domain, rawText }) {
+  const ourDomain = domain || recipientDomain(envelopeTo);
+  // Only exclude *our* destinations / operator inbox — NOT authorized_from
+  // (authorized_from are external senders who use the gateway; they ARE reply peers)
+  const exclude = [config.default_inbox].filter(Boolean);
+  const parts = extractExternalParticipants(rawText, ourDomain, exclude);
+  if (!parts.length) {
+    // still create token keyed off envelope from if present
+    const from = getHeader(rawText, "from") || "";
+    const m = from.match(/[^\s<>"]+@[^\s<>"]+/);
+    parts.push({
+      email: (m ? m[0] : "unknown@invalid").toLowerCase(),
+      display_hint: from,
+      role: "primary",
+      header: "from",
+    });
+  }
+  // Primary already first from extractExternalParticipants
+  const primary = parts.find((p) => p.is_primary) || parts[0];
+  const others = parts
+    .filter((p) => p.email !== primary.email)
+    .map((o, i) => ({ ...o, local_suffix: `p${i + 1}` }));
+  const token = generateToken();
+  const multiparty = true;
+
+  await db.insertReplyRoute(env.DB, {
+    token,
+    inbound_id: inboundId,
+    our_domain: ourDomain,
+    our_mailbox: String(envelopeTo || "").toLowerCase(),
+    created_at: Date.now(),
+    multiparty,
+    subject: getHeader(rawText, "subject") || "",
+  });
+  await db.insertReplyParticipant(env.DB, {
+    id: randomId(),
+    token,
+    email: primary.email,
+    display_hint: primary.display_hint,
+    role: "primary",
+    local_suffix: null,
+    in_primary: true,
+    in_all: true,
+  });
+  for (const o of others) {
+    await db.insertReplyParticipant(env.DB, {
+      id: randomId(),
+      token,
+      email: o.email,
+      display_hint: o.display_hint,
+      role: o.role || "cc",
+      local_suffix: o.local_suffix,
+      in_primary: false,
+      in_all: true,
+    });
+  }
+
+  return {
+    token,
+    ourDomain,
+    ourMailbox: String(envelopeTo || "").toLowerCase(),
+    primary,
+    others,
+    multiparty,
+  };
+}
+
+/**
+ * Authorized Gmail → r+TOKEN@domain → ESP to original participant(s).
+ */
+async function handleReplyHop(env, message, config, hooks, ctx) {
+  const {
+    invocationId,
+    now,
+    rawAb,
+    rawBytes,
+    rawText,
+    rawSha,
+    messageId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    replyTok,
+  } = ctx;
+
+  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
+  const allow = config.token_auth?.authorized_from || [];
+  if (
+    !isAuthorizedSender(envelopeFrom, allow) &&
+    !isAuthorizedSender(headerFrom, allow)
+  ) {
+    try {
+      message.setReject?.("reply-token: sender not authorized");
+    } catch {
+      /* */
+    }
+    const err = new Error("reply_token_unauthorized");
+    err.retryable = false;
+    throw err;
+  }
+
+  if (!cfAuthLooksPass(rawText, headerFrom) && !cfAuthLooksPass(rawText, envelopeFrom)) {
+    // Fail closed unless hook overrides for tests
+    if (!hooks.skipCfAuth) {
+      try {
+        message.setReject?.("reply-token: missing CF auth pass");
+      } catch {
+        /* */
+      }
+      const err = new Error("reply_token_auth_failed");
+      err.retryable = false;
+      throw err;
+    }
+  }
+
+  const route = await db.getReplyRoute(env.DB, replyTok.token);
+  if (!route) {
+    try {
+      message.setReject?.("reply-token: unknown token");
+    } catch {
+      /* */
+    }
+    const err = new Error("reply_token_unknown");
+    err.retryable = false;
+    throw err;
+  }
+
+  const participants = await db.listReplyParticipants(env.DB, replyTok.token);
+  let dests = [];
+  if (!replyTok.suffix) {
+    dests = participants.filter((p) => p.in_primary);
+    if (!dests.length) dests = participants.filter((p) => p.role === "primary");
+  } else if (replyTok.suffix === "all") {
+    dests = participants.filter((p) => p.in_all);
+  } else {
+    dests = participants.filter(
+      (p) => (p.local_suffix || "").toLowerCase() === replyTok.suffix,
+    );
+  }
+  if (!dests.length) {
+    const err = new Error("reply_token_no_participants");
+    err.retryable = false;
+    throw err;
+  }
+
+  const sa = resolveSendAs(config, route.our_mailbox || `x@${route.our_domain}`);
+  // From = original receiving mailbox on our domain, NOT reply@
+  const mailbox = (
+    route.our_mailbox ||
+    sa.address ||
+    `noreply@${route.our_domain}`
+  ).toLowerCase();
+  const resolved = resolveMailFrom(config, mailbox);
+  let mailFrom = resolved.ok ? resolved.mailFrom : mailbox;
+
+  const subject = subjectFromRaw(rawText);
+  const dedupeKey = await dedupeKeyHex(
+    envelopeFrom,
+    envelopeTo,
+    messageId,
+    rawSha,
+  );
+
+  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const wantArchive = archiveEnabled(config, null);
+  if (!inbound) {
+    inbound = {
+      id: randomId(),
+      dedupe_key: dedupeKey,
+      received_at: now,
+      updated_at: now,
+      envelope_from: envelopeFrom,
+      envelope_to: envelopeTo,
+      recipient_domain: domain,
+      subject,
+      message_id: messageId,
+      raw_sha256: rawSha,
+      archive_enabled: wantArchive ? 1 : 0,
+      r2_key: null,
+      raw_size: rawBytes.byteLength,
+      archived_at: null,
+      rule_id: "reply_token",
+      status: "pending_deliveries",
+      last_error: null,
+    };
+    await db.insertInbound(env.DB, inbound);
+  }
+
+  if (wantArchive && !inbound.r2_key) {
+    const put = hooks.archivePut || putArchive;
+    const res = await put(env.ARCHIVE, {
+      id: inbound.id,
+      recipient_domain: domain,
+      raw: rawAb,
+      raw_size: rawBytes.byteLength,
+    });
+    if (res.ok) {
+      await db.updateInbound(env.DB, inbound.id, {
+        r2_key: res.r2_key,
+        archived_at: Date.now(),
+      });
+      inbound.r2_key = res.r2_key;
+    }
+  }
+
+  const destinations = dests.map((d) => ({
+    email: d.email,
+    method: "provider_send",
+    provider: "smtp",
+    send_as: mailFrom,
+    display_hint: d.display_hint,
+  }));
+  const targets = await db.ensureTargets(env.DB, inbound.id, destinations);
+  const pending = targets.filter((t) => t.state !== "succeeded");
+  const sendFn = hooks.smtpSend || sendOutboundMime;
+  const errors = [];
+
+  for (const t of pending) {
+    const attemptNumber = (t.attempt_count || 0) + 1;
+    const started = Date.now();
+    const part = dests.find(
+      (d) => d.email.toLowerCase() === t.destination.toLowerCase(),
+    );
+    const toField = formatSmtpMailbox(part?.display_hint || "", t.destination);
+    const fromField = formatSmtpMailbox(mailbox, mailFrom);
+    // Body 1:1 — rebuild headers only, keep multipart/HTML/QP untouched
+    const mimeOut = rebuildOutboundMime({
+      rawText,
+      from: fromField,
+      to: toField,
+      subject: null,
+      keepMessageId: true,
+    });
+    const result = await sendFn(env, {
+      mailFrom,
+      fromName: mailbox,
+      to: t.destination,
+      mimeText: mimeOut,
+    });
+    const finished = Date.now();
+    await db.insertAttempt(env.DB, {
+      id: randomId(),
+      inbound_id: inbound.id,
+      delivery_target_id: t.id,
+      destination: t.destination,
+      attempt_number: attemptNumber,
+      started_at: started,
+      finished_at: finished,
+      success: result.ok,
+      error: result.error || null,
+      method: "provider_send",
+      provider: "smtp",
+      send_as: mailFrom,
+      provider_message_id: result.providerMessageId || null,
+      provider_status:
+        result.providerStatus != null ? String(result.providerStatus) : null,
+      invocation_id: invocationId,
+    });
+    if (result.ok) {
+      await db.updateTarget(env.DB, t.id, {
+        state: "succeeded",
+        attempt_count: attemptNumber,
+        last_error: null,
+        last_provider_message_id: result.providerMessageId || null,
+        last_attempt_at: finished,
+        succeeded_at: finished,
+      });
+      logger.info("reply_hop.ok", {
+        invocationId,
+        mailFrom,
+        to: toField,
+      });
+    } else {
+      await db.updateTarget(env.DB, t.id, {
+        state: "failed",
+        attempt_count: attemptNumber,
+        last_error: result.error || "fail",
+        last_attempt_at: finished,
+      });
+      errors.push(`${t.destination}: ${result.error || "fail"}`);
+      logger.error("reply_hop.fail", {
+        invocationId,
+        mailFrom,
+        to: toField,
+        error: result.error,
+      });
+    }
+  }
+
+  const allTargets = await db.listTargets(env.DB, inbound.id);
+  const deliveryOk = allTargets.every((t) => t.state === "succeeded");
+  const archOk = !wantArchive || Boolean(inbound.r2_key);
+  if (deliveryOk && archOk) {
+    await db.updateInbound(env.DB, inbound.id, {
+      status: "reply_token_completed",
+      last_error: null,
+    });
+    return { ok: true, status: "reply_token_completed", inboundId: inbound.id };
+  }
+  const msg = [!archOk && "archive_missing", !deliveryOk && errors.join("; ")]
+    .filter(Boolean)
+    .join(" | ");
+  await db.updateInbound(env.DB, inbound.id, {
+    status: "pending_deliveries",
+    last_error: msg,
+  });
+  const err = new Error(msg || "reply_incomplete");
+  err.retryable = true;
+  throw err;
+}

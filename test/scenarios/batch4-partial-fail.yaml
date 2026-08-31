@@ -1,0 +1,20 @@
+# One good + one bad dest (for partial failure tests)
+version: 1
+default_inbox: me@gmail.com
+archive:
+  enabled: true
+defaults:
+  provider: smtp
+  send_as:
+    enabled: false
+token_auth:
+  authorized_from:
+    - me@gmail.com
+domains: {}
+rules:
+  - id: partial
+    match:
+      type: catch_all
+    destinations:
+      - email: me@gmail.com
+      - email: invalid-dest-not-verified@invalid.example

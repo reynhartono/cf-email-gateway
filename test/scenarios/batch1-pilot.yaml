@@ -1,0 +1,15 @@
+# Happy path: default_inbox cf_forward + archive
+version: 1
+default_inbox: me@gmail.com
+archive:
+  enabled: true
+defaults:
+  provider: smtp
+  send_as:
+    enabled: false
+    multiparty: true
+token_auth:
+  authorized_from:
+    - me@gmail.com
+domains: {}
+rules: []

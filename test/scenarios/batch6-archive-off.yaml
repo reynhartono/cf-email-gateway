@@ -1,0 +1,14 @@
+# Archive disabled
+version: 1
+default_inbox: me@gmail.com
+archive:
+  enabled: false
+defaults:
+  provider: smtp
+  send_as:
+    enabled: false
+token_auth:
+  authorized_from:
+    - me@gmail.com
+domains: {}
+rules: []

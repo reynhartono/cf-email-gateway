@@ -1,0 +1,22 @@
+# Generic full example (compose + tokens + send_as domain)
+version: 1
+default_inbox: me@gmail.com
+archive:
+  enabled: true
+compose:
+  default_from: me@example.com
+reply_tokens:
+  enabled: true
+defaults:
+  provider: smtp
+  send_as:
+    enabled: false
+    multiparty: true
+token_auth:
+  authorized_from:
+    - me@gmail.com
+domains:
+  example.com:
+    send_as:
+      enabled: true
+rules: []

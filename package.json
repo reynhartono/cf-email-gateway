@@ -1,0 +1,25 @@
+{
+  "name": "cf-email-gateway",
+  "version": "0.2.0",
+  "private": false,
+  "type": "module",
+  "description": "Cloudflare Email Routing gateway \u2014 archive, cf_forward + X-CFEG tokens, SMTP compose / send-proxy / reply-hop",
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "check": "node --check src/index.js && npm test",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "db:local": "wrangler d1 migrations apply cf-email-gateway --local",
+    "db:remote": "wrangler d1 migrations apply cf-email-gateway --remote"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.14.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
