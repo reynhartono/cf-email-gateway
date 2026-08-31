@@ -2,7 +2,14 @@
  * Core inbound pipeline: archive B9, cf_forward + X-CFEG, send-proxy, reply hop.
  */
 
-import { archiveEnabled, resolveDriver, recipientDomain, FEATURES, resolveSendAs } from "./config.js";
+import {
+  archiveEnabled,
+  resolveDriver,
+  recipientDomain,
+  FEATURES,
+  resolveSendAs,
+  replyTokensWanted,
+} from "./config.js";
 import {
   dedupeKeyHex,
   getHeader,
@@ -186,11 +193,9 @@ export async function handleInbound(env, message, config, hooks = {}) {
     }
   }
 
-  // Mint reply token once per inbound for X-CFEG-* on all cf_forwards
+  // Mint reply token only on send_as-enabled apexes (not archive-only zones)
   let forwardTokenMeta = null;
-  const wantTokens =
-    FEATURES.reply_tokens_on_forward &&
-    config.reply_tokens?.enabled !== false;
+  const wantTokens = replyTokensWanted(config, envelopeTo);
   if (wantTokens) {
     try {
       forwardTokenMeta = await mintForwardReplyToken(env, config, {

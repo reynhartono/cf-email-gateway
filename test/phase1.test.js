@@ -10,6 +10,7 @@ import {
   resolveDriver,
   archiveEnabled,
   FEATURES,
+  replyTokensWanted,
 } from "../src/config.js";
 import {
   dedupeKeyHex,
@@ -52,6 +53,27 @@ describe("config", () => {
       resolveDriver(c, "a@example.com", { method: "cf_forward" }),
       "cf_forward",
     );
+  });
+
+  it("reply tokens only when send_as enabled for envelope domain", () => {
+    const c = normalizeConfig({
+      version: 1,
+      reply_tokens: { enabled: true },
+      defaults: { send_as: { enabled: false } },
+      domains: {
+        "reyn.it": { send_as: { enabled: true } },
+        "archive-only.example": { send_as: { enabled: false } },
+      },
+    });
+    assert.equal(replyTokensWanted(c, "x@reyn.it"), true);
+    assert.equal(replyTokensWanted(c, "x@archive-only.example"), false);
+    assert.equal(replyTokensWanted(c, "x@unknown.example"), false);
+    const off = normalizeConfig({
+      version: 1,
+      reply_tokens: { enabled: false },
+      domains: { "reyn.it": { send_as: { enabled: true } } },
+    });
+    assert.equal(replyTokensWanted(off, "x@reyn.it"), false);
   });
 });
 

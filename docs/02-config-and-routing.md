@@ -38,6 +38,11 @@ rules:
 Inbound default: **`cf_forward`**.  
 Explicit `provider_send` / `smtp` only when set on a destination (advanced).
 
+## reply tokens (X-CFEG)
+
+Global `reply_tokens.enabled` (default **true**) **and** envelope apex `domains.<apex>.send_as.enabled: true`.  
+Archive-only Worker zones (send_as false) still **cf_forward** + archive; no `r+` / X-CFEG mint.
+
 ## default_inbox merge
 
 On rule match, `default_inbox` is **always merged** (deduped) unless `skip_default_inbox: true`.

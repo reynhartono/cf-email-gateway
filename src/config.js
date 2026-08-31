@@ -120,6 +120,18 @@ export function resolveSendAs(config, envelopeTo) {
 }
 
 /**
+ * Mint X-CFEG reply tokens on cf_forward only when:
+ * - global reply_tokens.enabled (default true), and
+ * - envelope domain has send_as.enabled (reply hop / send-proxy apex).
+ * Archive-only Worker zones keep cf_forward without r+ tokens.
+ */
+export function replyTokensWanted(config, envelopeTo) {
+  if (!FEATURES.reply_tokens_on_forward) return false;
+  if (config.reply_tokens?.enabled === false) return false;
+  return resolveSendAs(config, envelopeTo).enabled === true;
+}
+
+/**
  * Inbound delivery driver. Default cf_forward.
  * provider_send / smtp only when explicitly set.
  */
