@@ -2,7 +2,7 @@
 
 **Version:** `2`  
 **Producer:** this repo (`src/forward_headers.js`, `src/reply_tokens.js`)  
-**Consumer pin:** `cfeg-reply-extension` → `docs/02-header-contract.md`
+**Consumer pin:** `cfeg-reply-extension` → `docs/02-header-contract.md`; **`cfeg-reply-addon`** → `docs/02-header-contract.md` (Workspace Add-on)
 
 Breaking changes → bump `X-CFEG-Version` and coordinate extension release.
 
