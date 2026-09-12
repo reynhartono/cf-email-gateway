@@ -9,9 +9,6 @@ Extension polish is companion repo `cfeg-reply-extension`.
 - Phase 2a: compose + send-proxy; `FEATURES.provider_send = true`.  
 - Phase 2b: inbound **cf_forward + X-CFEG-* v2**; reply hop SMTP 1:1.  
 
-## Clean-room
-
-Ideas may come from public projects (e.g. hide-my-email, AGPL). **Do not copy code.** License **MIT**.
 
 ## SoT order
 

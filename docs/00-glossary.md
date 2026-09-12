@@ -10,4 +10,3 @@
 | **default_inbox** | Fallback destination merged on rule match (unless skip) |
 | **B9** | Archive + delivery same run; SUCCESS only if both required paths ok |
 | **ROUTING_YAML** | Wrangler secret holding live routing config |
-| **clean-room** | Implement from our docs + public APIs; no AGPL code copy |

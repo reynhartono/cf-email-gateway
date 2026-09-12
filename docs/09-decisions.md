@@ -22,9 +22,6 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | B10 | Git hygiene | Examples + synthetic fixtures only; live routing/secrets/ids stay out of commits |
 | B15 | Dual-delivery | Rejected |
 
-## Clean-room
-
-Implement from **our docs + public APIs**. Inspiration from AGPL projects is ideas-only — **no code copy**.
 
 ## Not open
 
