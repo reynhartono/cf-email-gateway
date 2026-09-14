@@ -65,6 +65,26 @@ describe("identity ACL", () => {
     assert.equal(identityMaySendAs(alice, "alice@other.example"), false);
   });
 
+  it("identityMaySendAs rejects glue-local bleed (alicenetflix) and bare-prefix misconfig", () => {
+    const c = cfg();
+    const alice = findIdentityByAuthorizedFrom(c, "alice@gmail.com");
+    // Trailing "." namespace: alice.X ok; glued alicenetflix must NOT be Alice
+    assert.equal(identityMaySendAs(alice, "alicenetflix@example.com"), false);
+    assert.equal(identityMaySendAs(alice, "aliceevil@example.com"), false);
+    assert.equal(identityMaySendAs(alice, "alice.@example.com"), true); // local "alice." starts with "alice."
+    // Misconfig without trailing dot must not grant startsWith("alice") superpower
+    const loose = {
+      id: "loose",
+      unrestricted: false,
+      can_send_as: [
+        { type: "local_part_prefix", value: "alice", domain: "example.com" },
+      ],
+    };
+    assert.equal(identityMaySendAs(loose, "alice@example.com"), false);
+    assert.equal(identityMaySendAs(loose, "alice.netflix@example.com"), false);
+    assert.equal(identityMaySendAs(loose, "alicenetflix@example.com"), false);
+  });
+
   it("unrestricted identity may send as any mailbox", () => {
     const c = cfg();
     const op = findIdentityByAuthorizedFrom(c, "me@gmail.com");

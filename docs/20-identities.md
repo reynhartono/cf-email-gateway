@@ -62,9 +62,20 @@ rules:
 
 Receive prefix and `can_send_as` prefix should match so Alice only sees (and can reply as) her namespace.
 
+### Outbound mailbox shapes (lock)
+
+| Allowed for person `alice` | Denied |
+|----------------------------|--------|
+| `alice@example.com` (`type: address`) | `alicenetflix@example.com` (glue local — other user may own) |
+| `alice.netflix@example.com` (`local_part_prefix` `alice.`) | `alice` prefix **without** trailing `.` (ignored / no match) |
+| `alice.anything@example.com` | `bob.…@example.com` |
+
+`local_part_prefix` in `can_send_as` uses the same trailing-`.` lock as inbound rules.
+
 ## Security notes
 
 - `compose_bearer` values live only in **private** deploy `ROUTING_YAML` (secret).  
 - Knowing an `r+TOKEN` address is not enough when identities are on — hop From must own `our_mailbox`.  
 - Operator `unrestricted` is intentional break-glass; keep its Gmails tight.  
-- Archive remains shared under the operator.
+- Archive remains shared under the operator.  
+- With **`identities` empty** (legacy), any `token_auth.authorized_from` sender may send-proxy as **any** alias — enable identities for multi-person ACL.

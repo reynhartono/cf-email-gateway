@@ -60,11 +60,14 @@ Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters 
 
 ### Prefix safety
 
-- Prefer a **trailing separator** on prefixes (`alice.`) so `alice` does not match `alicesevil@…`.
+- **`local_part_prefix` requires a trailing `.`** on `value` (`alice.`). Without it the rule never matches (hard lock).
+- That lock stops glue-local bleed: `alice.` matches `alice.netflix@…` and **not** `alicenetflix@…` (another person may own the glued local).
+- Bare vanity is **`match.type: address`** only (`alice@apex`) — prefix alone never covers bare local.
 - Put **longer / more specific** prefixes **before** shorter ones in YAML (first match in tier 2 wins).
 - Empty `value` never matches.
 - **Do not** rely on `+` tags in aliases — many site validators reject `+`.
 - Multi-person / shared privacy domains: set **`skip_default_inbox: true`** on person rules or operator inbox is still merged.
+- **Outbound** (compose / send-proxy / reply hop): same bare + `person.` shapes via `identities[].can_send_as` — see `docs/20-identities.md`.
 
 ### Multi-person privacy pattern (synthetic)
 

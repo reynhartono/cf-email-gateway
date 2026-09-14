@@ -136,7 +136,9 @@ export function identityMaySendAs(identity, mailbox) {
     if (m.type === "local_part_prefix") {
       const prefix = String(m.value || "").toLowerCase();
       const wantDomain = String(m.domain || "").toLowerCase();
-      if (!prefix || !wantDomain) continue;
+      // Same lock as inbound: trailing "." required — bare local is type=address only.
+      // "yumi." allows yumi.netflix@; rejects yuminetflix@ (other person may own that local).
+      if (!prefix || !prefix.endsWith(".") || !wantDomain) continue;
       if (domain === wantDomain && local.startsWith(prefix)) return true;
     }
   }

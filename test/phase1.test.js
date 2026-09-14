@@ -195,6 +195,40 @@ describe("util", () => {
     );
     const missBare = resolveDestinations(c, "alice@example.com", resolveDriver);
     assert.equal(missBare.ruleId, null);
+    // Glue local must not match person. prefix (other user may own alicenetflix@)
+    const missGlue = resolveDestinations(
+      c,
+      "alicenetflix@example.com",
+      resolveDriver,
+    );
+    assert.equal(missGlue.ruleId, null);
+  });
+
+  it("resolveDestinations local_part_prefix without trailing dot never matches", () => {
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "bad-prefix",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice",
+            domain: "example.com",
+          },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(
+      resolveDestinations(c, "alice.netflix@example.com", resolveDriver).ruleId,
+      null,
+    );
+    assert.equal(
+      resolveDestinations(c, "alicenetflix@example.com", resolveDriver).ruleId,
+      null,
+    );
   });
 
   it("resolveDestinations match priority: address > local_part_prefix > catch_all", () => {

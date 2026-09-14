@@ -94,7 +94,9 @@ export function splitEnvelopeTo(toLower) {
  */
 function matchLocalPartPrefix(match, local, domain) {
   const prefix = String(match.value || "").toLowerCase();
-  if (!prefix) return false;
+  // Namespace lock: require trailing "." so "yumi" cannot claim "yuminetflix".
+  // Bare vanity is match.type=address only (yumi@apex).
+  if (!prefix || !prefix.endsWith(".")) return false;
   const wantDomain = String(match.domain || "").toLowerCase();
   if (!wantDomain || domain !== wantDomain) return false;
   return local.startsWith(prefix);
