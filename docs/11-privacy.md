@@ -6,6 +6,7 @@
 - Logs: dest + errors, not bodies.  
 - No private Gmail on external-facing MIME From.  
 - No X-Original-From / X-Original-Message-ID on outbound to third parties.
+- Multi-person apex: person rules must `skip_default_inbox`; archive remains **operator-shared** (not tenant-isolated). See `docs/19-multi-person-routing.md`.
 
 ## Retention / cleanup
 

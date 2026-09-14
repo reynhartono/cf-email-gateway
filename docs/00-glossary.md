@@ -8,5 +8,7 @@
 | **send-proxy** | Authorized sender → `alias+user=domain@our` → SMTP as `alias@our` |
 | **compose** | HTTP `POST /v1/compose` → SMTP From our domain |
 | **default_inbox** | Fallback destination merged on rule match (unless skip) |
+| **local_part_prefix** | Rule match: local-part starts with `value` on required `domain` |
+| **local_part_plus** | Rule match: `user@domain` or `user+tag@domain` on required `domain` |
 | **B9** | Archive + delivery same run; SUCCESS only if both required paths ok |
 | **ROUTING_YAML** | Wrangler secret holding live routing config |

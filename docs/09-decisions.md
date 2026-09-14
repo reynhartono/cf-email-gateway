@@ -21,6 +21,12 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q19–21 | default_inbox | Always merged on rule match unless skip |
 | B10 | Git hygiene | Examples + synthetic fixtures only; live routing/secrets/ids stay out of commits |
 | B15 | Dual-delivery | Rejected |
+| Q22 | Multi-person privacy domain | Apex local-part namespaces — not per-person subdomains |
+| Q23 | Rule match tiers | `address` → `local_part_prefix` \| `local_part_plus` → `catch_all` → default_inbox |
+| Q24 | local_part_prefix | `value` + required `domain`; empty prefix never matches; prefer trailing separator |
+| Q25 | local_part_plus | bare `user@` or `user+tag@` on required `domain`; no `userX` bleed |
+| Q26 | Person rules | `skip_default_inbox: true`; shared apex unknowns should not silently use operator default_inbox |
+| Q27 | Shared archive | Multi-person aliases still one operator archive (R2/D1) — not tenant isolation |
 
 
 ## Not open
@@ -30,3 +36,5 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - ESP as Alice  
 - SUCCESS without archive when archive.enabled  
 - MIME Reply-To rewrite on forward (use X-CFEG)  
+- Per-person subdomain routing as the default multi-person design  
+- End-to-end archive isolation between people on one Worker  
