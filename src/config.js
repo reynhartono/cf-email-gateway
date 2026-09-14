@@ -3,6 +3,7 @@
  */
 
 import YAML from "yaml";
+import { normalizeIdentities } from "./identity.js";
 
 /** Feature gates (product surface) */
 export const FEATURES = {
@@ -94,6 +95,7 @@ export function normalizeConfig(raw) {
         ? raw.token_auth.authorized_from.map(String)
         : [],
     },
+    identities: normalizeIdentities(raw),
     domains,
     rules: Array.isArray(raw.rules) ? raw.rules : [],
   };

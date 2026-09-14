@@ -117,6 +117,95 @@ describe("compose HTTP", () => {
     assert.equal(j.ok, false);
     assert.match(j.error, /SMTP/);
   });
+
+  it("403 when identity compose bearer used outside can_send_as", async () => {
+    const multi = normalizeConfig({
+      version: 1,
+      domains: { "example.com": { send_as: { enabled: true } } },
+      identities: [
+        {
+          id: "alice",
+          authorized_from: ["alice@gmail.com"],
+          compose_bearer: "tok-alice",
+          can_send_as: [
+            {
+              type: "local_part_prefix",
+              value: "alice.",
+              domain: "example.com",
+            },
+          ],
+        },
+        {
+          id: "operator",
+          authorized_from: ["me@gmail.com"],
+          unrestricted: true,
+        },
+      ],
+    });
+    const res = await handleCompose(
+      new Request("https://x/v1/compose", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer tok-alice",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "bob.shop@example.com",
+          to: "friend@gmail.com",
+          subject: "nope",
+          text: "x",
+        }),
+      }),
+      { COMPOSE_API_TOKEN: "secret" },
+      multi,
+    );
+    assert.equal(res.status, 403);
+    const j = await res.json();
+    assert.match(j.error, /not allowed/i);
+    assert.equal(j.identity, "alice");
+  });
+
+  it("allows identity compose from own prefix (fails later on SMTP)", async () => {
+    const multi = normalizeConfig({
+      version: 1,
+      domains: { "example.com": { send_as: { enabled: true } } },
+      identities: [
+        {
+          id: "alice",
+          authorized_from: ["alice@gmail.com"],
+          compose_bearer: "tok-alice",
+          can_send_as: [
+            {
+              type: "local_part_prefix",
+              value: "alice.",
+              domain: "example.com",
+            },
+          ],
+        },
+      ],
+    });
+    const res = await handleCompose(
+      new Request("https://x/v1/compose", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer tok-alice",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "alice.netflix@example.com",
+          to: "friend@gmail.com",
+          subject: "ok",
+          text: "x",
+        }),
+      }),
+      { COMPOSE_API_TOKEN: "secret" },
+      multi,
+    );
+    assert.equal(res.status, 502); // ACL passed; SMTP missing
+    const j = await res.json();
+    assert.equal(j.identity, "alice");
+    assert.equal(j.mail_from, "alice.netflix@example.com");
+  });
 });
 
 describe("FEATURES", () => {

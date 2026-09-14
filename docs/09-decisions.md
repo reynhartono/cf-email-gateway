@@ -27,6 +27,9 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q25 | Plus-addressing | **Not supported** as a first-class match type — many site validators reject `+` |
 | Q26 | Person rules | `skip_default_inbox: true`; shared apex unknowns should not silently use operator default_inbox |
 | Q27 | Shared archive | Multi-person aliases still one operator archive (R2/D1) — not tenant isolation |
+| Q28 | identities | Optional; when set, compose/reply/send-proxy enforce mailbox ownership (`can_send_as`) |
+| Q29 | compose_bearer | Per-identity HTTP Bearer in ROUTING_YAML; COMPOSE_API_TOKEN → unrestricted identity only |
+| Q30 | Reply hop ACL | Token usable only if sender identity may send as `reply_routes.our_mailbox` |
 
 
 ## Not open
@@ -39,3 +42,4 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - Per-person subdomain routing as the default multi-person design  
 - End-to-end archive isolation between people on one Worker  
 - First-class `local_part_plus` / plus-tag alias matchers  
+- Cross-identity token hop when identities are configured  

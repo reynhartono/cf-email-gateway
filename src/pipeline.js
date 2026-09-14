@@ -26,6 +26,11 @@ import {
   parseSendProxyAddress,
   isAuthorizedSender,
 } from "./send_proxy.js";
+import {
+  assertMailboxAllowedOrThrow,
+  effectiveAuthorizedFrom,
+  resolveInboundActor,
+} from "./identity.js";
 import { buildForwardTokenHeaders } from "./forward_headers.js";
 import {
   parseReplyTokenAddress,
@@ -321,7 +326,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
   } = ctx;
 
   const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  const allow = config.token_auth?.authorized_from || [];
+  const allow = effectiveAuthorizedFrom(config);
   if (
     !isAuthorizedSender(envelopeFrom, allow) &&
     !isAuthorizedSender(headerFrom, allow)
@@ -329,7 +334,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     // Reject — do not open relay
     try {
       message.setReject?.(
-        "send-proxy: sender not authorized (add Gmail to token_auth.authorized_from)",
+        "send-proxy: sender not authorized (add Gmail to token_auth.authorized_from or identities)",
       );
     } catch {
       /* ignore */
@@ -339,11 +344,38 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     throw err;
   }
 
+  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  if (!actor.ok) {
+    try {
+      message.setReject?.(`send-proxy: ${actor.error}`);
+    } catch {
+      /* ignore */
+    }
+    const err = new Error("send_proxy_identity_unbound");
+    err.retryable = false;
+    throw err;
+  }
+
   const resolved = resolveMailFrom(config, proxy.fromEmail);
   if (!resolved.ok) {
     const err = new Error(`send_proxy_from: ${resolved.error}`);
     err.retryable = false;
     throw err;
+  }
+
+  if (!actor.legacy) {
+    try {
+      assertMailboxAllowedOrThrow(actor.identity, resolved.mailFrom);
+    } catch (e) {
+      try {
+        message.setReject?.(`send-proxy: ${e.message}`);
+      } catch {
+        /* ignore */
+      }
+      const err = new Error("send_proxy_identity_mailbox_denied");
+      err.retryable = false;
+      throw err;
+    }
   }
 
   const subject = subjectFromRaw(rawText);
@@ -633,7 +665,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
   } = ctx;
 
   const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  const allow = config.token_auth?.authorized_from || [];
+  const allow = effectiveAuthorizedFrom(config);
   if (
     !isAuthorizedSender(envelopeFrom, allow) &&
     !isAuthorizedSender(headerFrom, allow)
@@ -644,6 +676,18 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
       /* */
     }
     const err = new Error("reply_token_unauthorized");
+    err.retryable = false;
+    throw err;
+  }
+
+  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  if (!actor.ok) {
+    try {
+      message.setReject?.(`reply-token: ${actor.error}`);
+    } catch {
+      /* */
+    }
+    const err = new Error("reply_token_identity_unbound");
     err.retryable = false;
     throw err;
   }
@@ -672,6 +716,26 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     const err = new Error("reply_token_unknown");
     err.retryable = false;
     throw err;
+  }
+
+  // Person may only hop tokens whose our_mailbox is in their can_send_as prefix.
+  if (!actor.legacy) {
+    const hopMailbox = (
+      route.our_mailbox ||
+      `noreply@${route.our_domain}`
+    ).toLowerCase();
+    try {
+      assertMailboxAllowedOrThrow(actor.identity, hopMailbox);
+    } catch (e) {
+      try {
+        message.setReject?.(`reply-token: ${e.message}`);
+      } catch {
+        /* */
+      }
+      const err = new Error("reply_token_identity_mailbox_denied");
+      err.retryable = false;
+      throw err;
+    }
   }
 
   const participants = await db.listReplyParticipants(env.DB, replyTok.token);

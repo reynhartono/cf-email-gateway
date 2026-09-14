@@ -22,6 +22,7 @@
 | [16-outbound-smtp-vs-api.md](./16-outbound-smtp-vs-api.md) | SMTP DATA |
 | [17-send-proxy.md](./17-send-proxy.md) | Send-proxy |
 | [19-multi-person-routing.md](./19-multi-person-routing.md) | Shared privacy apex / local-part namespaces |
+| [20-identities.md](./20-identities.md) | Compose / reply / send-proxy identity ACL |
 | [scenarios/](./scenarios/) | Synthetic runbooks |
 
 Author-only fleet notes: `author-fleet.local.md` (gitignored).

@@ -36,10 +36,23 @@ defaults:
   reply_as: {}
 
 # Who may use r+ reply hop and send-proxy (Gmail From + CF auth evidence).
+# Prefer identities[] for multi-person ACL (docs/20); this list still merges in.
 token_auth:
   authorized_from:
     - me@gmail.com
   # - other@gmail.com
+
+# Optional multi-person ACL (compose From + reply hop our_mailbox + send-proxy alias).
+# When non-empty: each sender/bearer is bound to can_send_as prefixes.
+# identities:
+#   - id: alice
+#     authorized_from: [alice@gmail.com]
+#     compose_bearer: "replace-me-alice"
+#     can_send_as:
+#       - { type: local_part_prefix, value: "alice.", domain: example.com }
+#   - id: operator
+#     authorized_from: [me@gmail.com]
+#     unrestricted: true   # COMPOSE_API_TOKEN maps here
 
 # Per receiving apex. Unlisted domains still use the gateway + defaults.
 # Enable send_as for outbound From / send-proxy / reply hop on that apex.

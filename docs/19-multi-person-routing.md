@@ -40,5 +40,6 @@ Prefer stable handles (`alice.`) over single-letter (`a.`) unless the set is tin
 2. Person rules: destinations + **`skip_default_inbox: true`**.  
 3. Optional exact vanity addresses for bare `person@apex`.  
 4. Apex `catch_all` policy for unknowns.  
-5. `authorized_from` only for people allowed to hop / send-proxy.  
-6. Tell participants: archive is operator-hosted; aliases are privacy vs third parties, not vs the operator.
+5. `authorized_from` only for people allowed to hop / send-proxy (or bind via `identities`).  
+6. For compose + hop isolation, add `identities` with matching `can_send_as` prefixes — `docs/20-identities.md`.  
+7. Tell participants: archive is operator-hosted; aliases are privacy vs third parties, not vs the operator.
