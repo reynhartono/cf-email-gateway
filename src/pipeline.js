@@ -1,10 +1,10 @@
 /**
  * Core inbound pipeline: archive B9, cf_forward + X-CFEG, send-proxy, reply hop.
  *
- * Insert-first + pattern-as-route:
- * 1) Always D1 insert (+ archive) before special-route authz.
- * 2) r+ / send-proxy address shapes are patterns, not exclusive early rejects.
- * 3) Authorized + bound actor → hop/proxy; else fall through to normal cf_forward.
+ * Default route = normal inbound (rules / default_inbox → cf_forward) after insert+archive.
+ * Exceptions (opt-in): authorized reply hop or send-proxy take over delivery only when
+ * the envelope matches that pattern AND the sender is authorized + identity-bound.
+ * Unauthorized pattern traffic stays on the default route (never outer setReject blackhole).
  */
 
 import {
@@ -157,65 +157,26 @@ export async function handleInbound(env, message, config, hooks = {}) {
     ? resolveInboundActor(config, envelopeFrom, headerFrom)
     : { ok: false };
 
-  // Pattern + authorized → special route. Else continue as normal inbound.
-  if (replyTok && senderAuthorized && actor.ok) {
-    logger.info("inbound.route", {
-      invocationId,
-      kind: "reply_token",
-      token: replyTok.token,
-      suffix: replyTok.suffix,
-    });
-    return handleReplyHop(env, message, config, hooks, {
-      invocationId,
-      now,
-      rawAb,
-      rawBytes,
-      rawText,
-      rawSha,
-      messageId,
-      envelopeFrom,
-      envelopeTo,
-      domain,
-      replyTok,
-    });
-  }
-  if (replyTok) {
-    logger.warn("reply_token.unauthorized_fallback", {
-      invocationId,
-      envelopeFrom,
-      envelopeTo,
-    });
-  }
+  // Exceptions to the default route (only when pattern ∧ authorized ∧ bound).
+  const exception = await tryDeliveryException(env, message, config, hooks, {
+    invocationId,
+    now,
+    rawAb,
+    rawBytes,
+    rawText,
+    rawSha,
+    messageId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    replyTok,
+    proxy,
+    senderAuthorized,
+    actor,
+  });
+  if (exception) return exception;
 
-  if (proxy && senderAuthorized && actor.ok) {
-    logger.info("inbound.route", {
-      invocationId,
-      kind: "send_proxy",
-      fromEmail: proxy.fromEmail,
-      rcptEmail: proxy.rcptEmail,
-    });
-    return handleSendProxy(env, message, config, hooks, {
-      invocationId,
-      now,
-      rawAb,
-      rawBytes,
-      rawText,
-      rawSha,
-      messageId,
-      envelopeFrom,
-      envelopeTo,
-      domain,
-      proxy,
-    });
-  }
-  if (proxy) {
-    logger.warn("send_proxy.unauthorized_fallback", {
-      invocationId,
-      envelopeFrom,
-      envelopeTo,
-    });
-  }
-
+  // ---- DEFAULT ROUTE: rules / default_inbox → cf_forward (+ X-CFEG) ----
   if (!destinations.length) {
     if (archiveOk || !wantArchive) {
       await db.updateInbound(env.DB, inbound.id, {
@@ -346,8 +307,92 @@ export async function handleInbound(env, message, config, hooks = {}) {
 }
 
 /**
+ * Opt-in exceptions to the default cf_forward route.
+ * Returns a handler result when hop/proxy should take over; otherwise null
+ * so handleInbound continues on the default path.
+ */
+async function tryDeliveryException(env, message, config, hooks, ctx) {
+  const {
+    invocationId,
+    now,
+    rawAb,
+    rawBytes,
+    rawText,
+    rawSha,
+    messageId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    replyTok,
+    proxy,
+    senderAuthorized,
+    actor,
+  } = ctx;
+
+  if (replyTok) {
+    if (senderAuthorized && actor.ok) {
+      logger.info("inbound.route", {
+        invocationId,
+        kind: "reply_token",
+        token: replyTok.token,
+        suffix: replyTok.suffix,
+      });
+      return handleReplyHop(env, message, config, hooks, {
+        invocationId,
+        now,
+        rawAb,
+        rawBytes,
+        rawText,
+        rawSha,
+        messageId,
+        envelopeFrom,
+        envelopeTo,
+        domain,
+        replyTok,
+      });
+    }
+    logger.warn("reply_token.unauthorized_fallback", {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+    });
+  }
+
+  if (proxy) {
+    if (senderAuthorized && actor.ok) {
+      logger.info("inbound.route", {
+        invocationId,
+        kind: "send_proxy",
+        fromEmail: proxy.fromEmail,
+        rcptEmail: proxy.rcptEmail,
+      });
+      return handleSendProxy(env, message, config, hooks, {
+        invocationId,
+        now,
+        rawAb,
+        rawBytes,
+        rawText,
+        rawSha,
+        messageId,
+        envelopeFrom,
+        envelopeTo,
+        domain,
+        proxy,
+      });
+    }
+    logger.warn("send_proxy.unauthorized_fallback", {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+    });
+  }
+
+  return null;
+}
+
+/**
  * Gmail (authorized) → special To → SMTP as alias@ourdomain → real recipient.
- * Does not CF-forward to default_inbox (proxy only).
+ * Exception route: does not CF-forward to default_inbox on success.
  */
 async function handleSendProxy(env, message, config, hooks, ctx) {
   const {
@@ -687,6 +732,7 @@ async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domai
 
 /**
  * Authorized Gmail → r+TOKEN@domain → ESP to original participant(s).
+ * Exception route over the default cf_forward path.
  */
 async function handleReplyHop(env, message, config, hooks, ctx) {
   const {

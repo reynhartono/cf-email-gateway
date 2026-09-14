@@ -30,6 +30,9 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q28 | identities | Optional; when set, compose/reply/send-proxy enforce mailbox ownership (`can_send_as`) |
 | Q29 | compose_bearer | Per-identity HTTP Bearer in ROUTING_YAML; COMPOSE_API_TOKEN → unrestricted identity only |
 | Q30 | Reply hop ACL | Token usable only if sender identity may send as `reply_routes.our_mailbox` |
+| Q31 | Inbound default | **cf_forward** (rules / default_inbox) after insert+archive; hop/proxy are **exceptions** only |
+| Q32 | Pattern shapes | `r+` / send-proxy To shapes are advisory; unauth → stay on default forward (no outer reject blackhole) |
+| Q33 | Insert-first | D1 (+ archive) before special-route authz; every message leaves a row when insert succeeds |
 
 
 ## Not open
@@ -43,3 +46,4 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - End-to-end archive isolation between people on one Worker  
 - First-class `local_part_plus` / plus-tag alias matchers  
 - Cross-identity token hop when identities are configured  
+- Authz-before-insert / exclusive early-return on r+ or proxy parse (blackholes accidental `+user=domain` To)  
