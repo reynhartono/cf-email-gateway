@@ -85,12 +85,53 @@ export function normalizeEmail(email) {
  * @returns {import('./config.js').Identity | null}
  */
 export function findIdentityByAuthorizedFrom(config, email) {
+  const all = findIdentitiesByAuthorizedFrom(config, email);
+  return all[0] || null;
+}
+
+/**
+ * All identities that list this Gmail/From (one person may own several namespaces).
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} email
+ * @returns {import('./config.js').Identity[]}
+ */
+export function findIdentitiesByAuthorizedFrom(config, email) {
   const e = normalizeEmail(email);
-  if (!e || !identitiesEnabled(config)) return null;
-  for (const id of config.identities) {
-    if ((id.authorized_from || []).includes(e)) return id;
+  if (!e || !identitiesEnabled(config)) return [];
+  return (config.identities || []).filter((id) =>
+    (id.authorized_from || []).includes(e),
+  );
+}
+
+/**
+ * Merge identities that share the same authorized_from sender into one ACL view.
+ * can_send_as is the union; unrestricted if any row is unrestricted.
+ * @param {import('./config.js').Identity[]} list
+ * @returns {import('./config.js').Identity | null}
+ */
+export function mergeIdentities(list) {
+  if (!list || !list.length) return null;
+  if (list.length === 1) return list[0];
+  const can_send_as = [];
+  const seen = new Set();
+  for (const id of list) {
+    for (const m of id.can_send_as || []) {
+      const key = `${m.type}|${(m.value || "").toLowerCase()}|${(m.domain || "").toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      can_send_as.push(m);
+    }
   }
-  return null;
+  const authorized_from = [
+    ...new Set(list.flatMap((id) => id.authorized_from || [])),
+  ];
+  return {
+    id: list.map((i) => i.id).join("+"),
+    authorized_from,
+    can_send_as,
+    compose_bearer: null,
+    unrestricted: list.some((i) => i.unrestricted === true),
+  };
 }
 
 /**
@@ -221,15 +262,18 @@ export function resolveComposeCaller(config, gotBearer, composeApiToken) {
 
 /**
  * Reply / send-proxy: resolve acting identity from envelope/header From.
+ * If one Gmail is listed on multiple identities, merge can_send_as (multi-namespace).
  * @returns {{ ok: true, identity: object | null, legacy: boolean } | { ok: false, error: string }}
  */
 export function resolveInboundActor(config, envelopeFrom, headerFrom) {
   if (!identitiesEnabled(config)) {
     return { ok: true, legacy: true, identity: null };
   }
-  const a =
-    findIdentityByAuthorizedFrom(config, envelopeFrom) ||
-    findIdentityByAuthorizedFrom(config, headerFrom);
+  const matched =
+    findIdentitiesByAuthorizedFrom(config, envelopeFrom).length > 0
+      ? findIdentitiesByAuthorizedFrom(config, envelopeFrom)
+      : findIdentitiesByAuthorizedFrom(config, headerFrom);
+  const a = mergeIdentities(matched);
   if (!a) {
     return {
       ok: false,

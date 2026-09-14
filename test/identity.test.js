@@ -85,6 +85,43 @@ describe("identity ACL", () => {
     assert.equal(identityMaySendAs(loose, "alicenetflix@example.com"), false);
   });
 
+  it("resolveInboundActor merges can_send_as when one Gmail owns multiple namespaces", async () => {
+    const { resolveInboundActor } = await import("../src/identity.js");
+    const c = normalizeConfig({
+      version: 1,
+      domains: { "example.com": { send_as: { enabled: true } } },
+      identities: [
+        {
+          id: "teddy",
+          authorized_from: ["shared@gmail.com"],
+          can_send_as: [
+            { type: "address", value: "teddy@example.com" },
+            { type: "local_part_prefix", value: "teddy.", domain: "example.com" },
+          ],
+        },
+        {
+          id: "serafim",
+          authorized_from: ["shared@gmail.com"],
+          can_send_as: [
+            { type: "address", value: "serafim@example.com" },
+            {
+              type: "local_part_prefix",
+              value: "serafim.",
+              domain: "example.com",
+            },
+          ],
+        },
+      ],
+    });
+    const actor = resolveInboundActor(c, "shared@gmail.com", null);
+    assert.equal(actor.ok, true);
+    assert.equal(actor.identity.id, "teddy+serafim");
+    assert.equal(identityMaySendAs(actor.identity, "teddy@example.com"), true);
+    assert.equal(identityMaySendAs(actor.identity, "serafim.x@example.com"), true);
+    assert.equal(identityMaySendAs(actor.identity, "teddynetflix@example.com"), false);
+    assert.equal(identityMaySendAs(actor.identity, "yumi@example.com"), false);
+  });
+
   it("unrestricted identity may send as any mailbox", () => {
     const c = cfg();
     const op = findIdentityByAuthorizedFrom(c, "me@gmail.com");

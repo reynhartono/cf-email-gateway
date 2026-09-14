@@ -79,3 +79,4 @@ Receive prefix and `can_send_as` prefix should match so Alice only sees (and can
 - Operator `unrestricted` is intentional break-glass; keep its Gmails tight.  
 - Archive remains shared under the operator.  
 - With **`identities` empty** (legacy), any `token_auth.authorized_from` sender may send-proxy as **any** alias — enable identities for multi-person ACL.
+- One Gmail on **multiple** identity rows is OK: inbound actor **merges** `can_send_as` (e.g. teddy + serafim for the same person).
