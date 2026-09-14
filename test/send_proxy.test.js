@@ -140,11 +140,12 @@ describe("send proxy pipeline", () => {
     assert.equal(DB._inbound.size, 1);
   });
 
-  it("rejects send-proxy alias outside identity can_send_as", async () => {
+  it("stays on default forward when proxy alias outside can_send_as (Alice≠Bob)", async () => {
     const DB = createMemoryDb();
     const config = normalizeConfig({
       version: 1,
       archive: { enabled: false },
+      default_inbox: "me@gmail.com",
       identities: [
         {
           id: "alice",
@@ -167,13 +168,23 @@ describe("send proxy pipeline", () => {
       to: "bob.shop+friend=gmail.com@example.com",
       raw,
     });
-    await assert.rejects(
-      () =>
-        handleInbound({ DB, ARCHIVE: {} }, msg, config, {
-          archivePut: async () => ({ ok: true, r2_key: "k" }),
-        }),
-      /identity_mailbox_denied/,
-    );
+    let forwarded = null;
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
   });
 
   it("allows send-proxy alias inside identity can_send_as", async () => {
@@ -302,9 +313,12 @@ describe("reply hop identity ACL", () => {
     assert.equal(sent.mailFrom, "alice.netflix@example.com");
   });
 
-  it("denies hop when sender uses another person's token mailbox", async () => {
+  it("stays on default forward when hop token mailbox is another person's", async () => {
     const DB = createMemoryDb();
     await seedRoute(DB, "tokbob1", "bob.github@example.com");
+    const config = multiConfig();
+    // multiConfig has no default_inbox — add one for default route
+    config.default_inbox = "me@gmail.com";
     const raw =
       "From: alice@gmail.com\r\nTo: r+tokbob1@example.com\r\nSubject: Re: Hi\r\nMessage-ID: <hop-deny@t>\r\n\r\nsteal";
     const msg = fakeMessage({
@@ -312,13 +326,23 @@ describe("reply hop identity ACL", () => {
       to: "r+tokbob1@example.com",
       raw,
     });
-    await assert.rejects(
-      () =>
-        handleInbound({ DB, ARCHIVE: {} }, msg, multiConfig(), {
-          skipCfAuth: true,
-          archivePut: async () => ({ ok: true, r2_key: "k" }),
-        }),
-      /identity_mailbox_denied/,
-    );
+    let forwarded = null;
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      skipCfAuth: true,
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
   });
 });

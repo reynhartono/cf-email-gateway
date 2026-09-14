@@ -17,13 +17,17 @@ Inbound **receive** routing stays rule-based (`local_part_prefix` / `address`); 
 **Default inbound route** is always normal delivery (`cf_forward` via rules / `default_inbox`) after D1 insert (+ archive).  
 `r+TOKEN@` and `alias+user=domain@apex` are **address patterns** that may trigger an **exception** (hop / send-proxy). They are not exclusive early rejects.
 
-| Shape | Exception (authorized + identity bound) | Default (not authorized / unbound) |
-|-------|------------------------------------------|-------------------------------------|
-| `r+TOKEN@…` | reply hop SMTP | **cf_forward** (`reply_token.unauthorized_fallback`) |
-| `alias+user=domain@apex` | send-proxy SMTP | **cf_forward** (`send_proxy.unauthorized_fallback`) |
-| accidental `me+someting=asdf.asd@…` | only if authorized proxy | still **arrives** via default_inbox / rules |
+| Shape | Exception (every gate passes) | Any gate fails |
+|-------|-------------------------------|----------------|
+| `r+TOKEN@…` | reply hop SMTP | **default cf_forward** (`reply_token.exception_skipped`) |
+| `alias+user=domain@apex` | send-proxy SMTP | **default cf_forward** (`send_proxy.exception_skipped`) |
+| accidental `me+someting=asdf.asd@…` | only if all proxy gates pass | still **arrives** via default_inbox / rules |
 
-**Still fail-closed (ACL, not stranger-fallback):** authorized identity using another person’s alias / token `our_mailbox` (`can_send_as` deny) remains denied inside the exception handlers.
+**Exception gates (all required before leaving the default path):** pattern match ∧ sender authorized ∧ identity bound ∧ `can_send_as` allows the proxy alias / token `our_mailbox` ∧ (reply: token exists + CF auth) ∧ (proxy: `send_as` resolve OK).
+
+**Alice using Bob’s alias:** Alice is authorized, but mailbox ACL fails → **do not enter** hop/proxy → **default forward** (not reject, not send-as-Bob).
+
+Defense-in-depth checks remain inside hop/proxy handlers if something calls them directly.
 
 ## Config
 

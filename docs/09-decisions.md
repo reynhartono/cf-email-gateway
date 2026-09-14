@@ -31,8 +31,9 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q29 | compose_bearer | Per-identity HTTP Bearer in ROUTING_YAML; COMPOSE_API_TOKEN → unrestricted identity only |
 | Q30 | Reply hop ACL | Token usable only if sender identity may send as `reply_routes.our_mailbox` |
 | Q31 | Inbound default | **cf_forward** (rules / default_inbox) after insert+archive; hop/proxy are **exceptions** only |
-| Q32 | Pattern shapes | `r+` / send-proxy To shapes are advisory; unauth → stay on default forward (no outer reject blackhole) |
+| Q32 | Pattern shapes | `r+` / send-proxy To shapes are advisory; incomplete gates → stay on default forward (no outer reject blackhole) |
 | Q33 | Insert-first | D1 (+ archive) before special-route authz; every message leaves a row when insert succeeds |
+| Q34 | Exception entry | Hop/proxy only when **all** gates pass (auth + identity + can_send_as + token/resolve); Alice≠Bob alias → default forward |
 
 
 ## Not open
