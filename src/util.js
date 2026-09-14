@@ -101,20 +101,6 @@ function matchLocalPartPrefix(match, local, domain) {
 }
 
 /**
- * Bare user@domain or user+tag@domain (no prefix bleed onto userX@).
- * @param {object} match
- * @param {string} local
- * @param {string} domain
- */
-function matchLocalPartPlus(match, local, domain) {
-  const user = String(match.value || "").toLowerCase();
-  if (!user) return false;
-  const wantDomain = String(match.domain || "").toLowerCase();
-  if (!wantDomain || domain !== wantDomain) return false;
-  return local === user || local.startsWith(`${user}+`);
-}
-
-/**
  * @param {import('./config.js').RoutingConfig} config
  * @param {string} envelopeTo
  * @param {(cfg: object, to: string, dest?: object) => string} resolveDriver
@@ -124,7 +110,7 @@ function matchLocalPartPlus(match, local, domain) {
  *
  * Match tiers (higher wins regardless of YAML order within lower tiers):
  *   1. address (exact envelope To)
- *   2. local_part_prefix | local_part_plus (first matching rule in YAML order)
+ *   2. local_part_prefix (first matching rule in YAML order)
  *   3. catch_all (optional domain in match.value)
  *   4. default_inbox / ingest-only
  */
@@ -143,9 +129,6 @@ export function resolveDestinations(config, envelopeTo, resolveDriver) {
   for (const rule of rules) {
     const m = rule.match || {};
     if (m.type === "local_part_prefix" && matchLocalPartPrefix(m, local, domain)) {
-      return finalize(config, envelopeTo, rule, rule.destinations, resolveDriver);
-    }
-    if (m.type === "local_part_plus" && matchLocalPartPlus(m, local, domain)) {
       return finalize(config, envelopeTo, rule, rule.destinations, resolveDriver);
     }
   }

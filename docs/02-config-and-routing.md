@@ -55,15 +55,15 @@ Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters 
 |------|--------------|--------|----------|
 | 1 | `address` | `value` = full addr | Exact envelope To |
 | 2 | `local_part_prefix` | `value` = prefix, **`domain` required** | Local-part `startsWith(value)` on that apex |
-| 2 | `local_part_plus` | `value` = user, **`domain` required** | `user@domain` or `user+tag@domain` (no `userX` bleed) |
 | 3 | `catch_all` | optional `value` = apex | All remaining on that apex (or any if omitted) |
 | 4 | — | — | `default_inbox` if set, else ingest-only |
 
 ### Prefix safety
 
-- Prefer a **trailing separator** on prefixes (`alice.` or `alice+`) so `alice` does not match `alicesevil@…`.
+- Prefer a **trailing separator** on prefixes (`alice.`) so `alice` does not match `alicesevil@…`.
 - Put **longer / more specific** prefixes **before** shorter ones in YAML (first match in tier 2 wins).
 - Empty `value` never matches.
+- **Do not** rely on `+` tags in aliases — many site validators reject `+`.
 - Multi-person / shared privacy domains: set **`skip_default_inbox: true`** on person rules or operator inbox is still merged.
 
 ### Multi-person privacy pattern (synthetic)
@@ -81,11 +81,11 @@ rules:
     destinations:
       - email: alice@gmail.com
 
-  - id: bob-plus
+  - id: bob-ns
     skip_default_inbox: true
     match:
-      type: local_part_plus
-      value: bob
+      type: local_part_prefix
+      value: "bob."
       domain: example.com
     destinations:
       - email: bob@gmail.com
@@ -96,5 +96,6 @@ rules:
     destinations: []   # archive / ingest-only — do not spill to operator default_inbox
 ```
 
-Addresses: `alice.netflix@example.com` → Alice; `bob+github@example.com` → Bob.  
+Addresses: `alice.netflix@example.com` → Alice; `bob.github@example.com` → Bob.  
+Bare vanity `alice@example.com` needs a separate `address` rule (prefix `alice.` does not match it).  
 See also `docs/19-multi-person-routing.md`.

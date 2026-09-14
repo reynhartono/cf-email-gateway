@@ -197,40 +197,7 @@ describe("util", () => {
     assert.equal(missBare.ruleId, null);
   });
 
-  it("resolveDestinations local_part_plus matches bare and plus tags", () => {
-    const c = normalizeConfig({
-      version: 1,
-      default_inbox: "me@gmail.com",
-      rules: [
-        {
-          id: "bob-plus",
-          skip_default_inbox: true,
-          match: {
-            type: "local_part_plus",
-            value: "bob",
-            domain: "example.com",
-          },
-          destinations: [{ email: "bob@gmail.com" }],
-        },
-      ],
-    });
-    for (const to of ["bob@example.com", "bob+github@example.com", "Bob+Netflix@Example.com"]) {
-      const r = resolveDestinations(c, to, resolveDriver);
-      assert.equal(r.ruleId, "bob-plus", to);
-      assert.deepEqual(
-        r.destinations.map((d) => d.email),
-        ["bob@gmail.com"],
-      );
-    }
-    const noPrefixBleed = resolveDestinations(
-      c,
-      "bobby@example.com",
-      resolveDriver,
-    );
-    assert.equal(noPrefixBleed.ruleId, null);
-  });
-
-  it("resolveDestinations match priority: address > local_part_* > catch_all", () => {
+  it("resolveDestinations match priority: address > local_part_prefix > catch_all", () => {
     const c = normalizeConfig({
       version: 1,
       default_inbox: "me@gmail.com",

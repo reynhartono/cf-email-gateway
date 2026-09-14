@@ -24,7 +24,7 @@
 2. alias+user=domain@our     → send-proxy (no default_inbox)
 3. rules / default_inbox / ingest-only
    3a. match type address
-   3b. match type local_part_prefix | local_part_plus
+   3b. match type local_part_prefix
    3c. match type catch_all
    3d. default_inbox (else ingest-only)
 ```
