@@ -12,6 +12,20 @@ When several people share a privacy apex, each person may only:
 
 Inbound **receive** routing stays rule-based (`local_part_prefix` / `address`); identities do not replace `rules`.
 
+## Routes vs authz (insert-first)
+
+`r+TOKEN@` and `alias+user=domain@apex` are **address patterns**, not exclusive early rejects.
+
+| Shape | Authorized + identity bound | Not authorized / unbound |
+|-------|-----------------------------|---------------------------|
+| `r+TOKEN@…` | reply hop | **normal cf_forward** (logged `reply_token.unauthorized_fallback`) |
+| `alias+user=domain@apex` | send-proxy SMTP | **normal cf_forward** (logged `send_proxy.unauthorized_fallback`) |
+| accidental `me+someting=asdf.asd@…` | n/a if stranger | still **arrives** via default_inbox / rules |
+
+**Pipeline:** D1 insert (+ archive) **before** special-route authz. Unauthorized pattern traffic leaves a D1 row and is forwarded like any other inbound — never blackholed with `setReject` at the outer gate.
+
+**Still fail-closed (ACL, not stranger-fallback):** authorized identity using another person’s alias / token `our_mailbox` (`can_send_as` deny) remains denied inside hop/proxy.
+
 ## Config
 
 ```yaml

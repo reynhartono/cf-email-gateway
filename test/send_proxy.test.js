@@ -103,27 +103,41 @@ describe("send proxy pipeline", () => {
     assert.match(mime, /Hello friend/);
   });
 
-  it("rejects unauthorized sender", async () => {
+  it("forwards unauthorized proxy-shaped To as normal inbound (no reject)", async () => {
     const DB = createMemoryDb();
     const config = normalizeConfig({
       version: 1,
+      archive: { enabled: false },
       token_auth: { authorized_from: ["me@gmail.com"] },
+      default_inbox: "me@gmail.com",
       domains: { "example.com": { send_as: { enabled: true } } },
     });
+    // Looks like send-proxy but stranger From — must still land in inbox.
     const raw =
-      "From: evil@gmail.com\r\nTo: a+b=gmail.com@example.com\r\nSubject: x\r\n\r\ny";
+      "From: evil@gmail.com\r\nTo: me+someting=asdf.asd@example.com\r\nSubject: x\r\nMessage-ID: <pxy-stranger@t>\r\n\r\ny";
     const msg = fakeMessage({
       from: "evil@gmail.com",
-      to: "a+b=gmail.com@example.com",
+      to: "me+someting=asdf.asd@example.com",
       raw,
     });
-    await assert.rejects(
-      () =>
-        handleInbound({ DB, ARCHIVE: {} }, msg, config, {
-          archivePut: async () => ({ ok: true, r2_key: "k" }),
-        }),
-      /unauthorized/,
-    );
+    let forwarded = null;
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
+    assert.equal(DB._inbound.size, 1);
   });
 
   it("rejects send-proxy alias outside identity can_send_as", async () => {

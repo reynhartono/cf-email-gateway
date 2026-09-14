@@ -1,5 +1,10 @@
 /**
  * Core inbound pipeline: archive B9, cf_forward + X-CFEG, send-proxy, reply hop.
+ *
+ * Insert-first + pattern-as-route:
+ * 1) Always D1 insert (+ archive) before special-route authz.
+ * 2) r+ / send-proxy address shapes are patterns, not exclusive early rejects.
+ * 3) Authorized + bound actor → hop/proxy; else fall through to normal cf_forward.
  */
 
 import {
@@ -71,61 +76,29 @@ export async function handleInbound(env, message, config, hooks = {}) {
     rawSize: rawBytes.byteLength,
   });
 
+  // Detect special address shapes early, but do not branch yet.
+  // Unauthorized / unbound senders fall through to normal cf_forward.
   const replyTok = parseReplyTokenAddress(envelopeTo);
-  if (replyTok) {
-    logger.info("inbound.route", { invocationId, kind: "reply_token", token: replyTok.token, suffix: replyTok.suffix });
-    return handleReplyHop(env, message, config, hooks, {
-      invocationId,
-      now,
-      rawAb,
-      rawBytes,
-      rawText,
-      rawSha,
-      messageId,
-      envelopeFrom,
-      envelopeTo,
-      domain,
-      replyTok,
-    });
-  }
-
   const proxy = parseSendProxyAddress(envelopeTo);
-  if (proxy) {
-    logger.info("inbound.route", {
-      invocationId,
-      kind: "send_proxy",
-      fromEmail: proxy.fromEmail,
-      rcptEmail: proxy.rcptEmail,
-    });
-    return handleSendProxy(env, message, config, hooks, {
-      invocationId,
-      now,
-      rawAb,
-      rawBytes,
-      rawText,
-      rawSha,
-      messageId,
-      envelopeFrom,
-      envelopeTo,
-      domain,
-      proxy,
-    });
-  }
-
-
-  const dedupeKey = await dedupeKeyHex(envelopeFrom, envelopeTo, messageId, rawSha);
-
-  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
-  const isNew = !inbound;
 
   const matched = resolveDestinations(config, envelopeTo, resolveDriver);
   const wantArchive = archiveEnabled(config, matched.rule);
+  let destinations = matched.destinations;
+  const ruleId = matched.ruleId;
+
   logger.info("inbound.destinations", {
     invocationId,
-    ruleId: matched.ruleId,
-    dests: matched.destinations.map((d) => ({ email: d.email, method: d.method })),
+    ruleId,
+    dests: destinations.map((d) => ({ email: d.email, method: d.method })),
     wantArchive,
+    replyTok: Boolean(replyTok),
+    proxy: Boolean(proxy),
   });
+
+  // Insert-first: always record + archive before special-route authz.
+  const dedupeKey = await dedupeKeyHex(envelopeFrom, envelopeTo, messageId, rawSha);
+  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const isNew = !inbound;
 
   if (isNew) {
     inbound = {
@@ -143,7 +116,7 @@ export async function handleInbound(env, message, config, hooks = {}) {
       r2_key: null,
       raw_size: rawBytes.byteLength,
       archived_at: null,
-      rule_id: matched.ruleId,
+      rule_id: ruleId,
       status: "pending_deliveries",
       last_error: null,
     };
@@ -175,7 +148,73 @@ export async function handleInbound(env, message, config, hooks = {}) {
     }
   }
 
-  let destinations = matched.destinations;
+  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
+  const allowList = effectiveAuthorizedFrom(config);
+  const senderAuthorized =
+    isAuthorizedSender(envelopeFrom, allowList) ||
+    isAuthorizedSender(headerFrom, allowList);
+  const actor = senderAuthorized
+    ? resolveInboundActor(config, envelopeFrom, headerFrom)
+    : { ok: false };
+
+  // Pattern + authorized → special route. Else continue as normal inbound.
+  if (replyTok && senderAuthorized && actor.ok) {
+    logger.info("inbound.route", {
+      invocationId,
+      kind: "reply_token",
+      token: replyTok.token,
+      suffix: replyTok.suffix,
+    });
+    return handleReplyHop(env, message, config, hooks, {
+      invocationId,
+      now,
+      rawAb,
+      rawBytes,
+      rawText,
+      rawSha,
+      messageId,
+      envelopeFrom,
+      envelopeTo,
+      domain,
+      replyTok,
+    });
+  }
+  if (replyTok) {
+    logger.warn("reply_token.unauthorized_fallback", {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+    });
+  }
+
+  if (proxy && senderAuthorized && actor.ok) {
+    logger.info("inbound.route", {
+      invocationId,
+      kind: "send_proxy",
+      fromEmail: proxy.fromEmail,
+      rcptEmail: proxy.rcptEmail,
+    });
+    return handleSendProxy(env, message, config, hooks, {
+      invocationId,
+      now,
+      rawAb,
+      rawBytes,
+      rawText,
+      rawSha,
+      messageId,
+      envelopeFrom,
+      envelopeTo,
+      domain,
+      proxy,
+    });
+  }
+  if (proxy) {
+    logger.warn("send_proxy.unauthorized_fallback", {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+    });
+  }
 
   if (!destinations.length) {
     if (archiveOk || !wantArchive) {
