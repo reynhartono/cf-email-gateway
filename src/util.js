@@ -76,16 +76,50 @@ export function getHeader(rawText, name) {
 }
 
 /**
+ * Split envelope To into local-part + domain (lowercased). Invalid → empty parts.
+ * @param {string} toLower
+ * @returns {{ local: string, domain: string }}
+ */
+export function splitEnvelopeTo(toLower) {
+  const s = String(toLower || "");
+  const at = s.lastIndexOf("@");
+  if (at <= 0 || at === s.length - 1) return { local: "", domain: "" };
+  return { local: s.slice(0, at), domain: s.slice(at + 1) };
+}
+
+/**
+ * @param {object} match rule.match
+ * @param {string} local
+ * @param {string} domain
+ */
+function matchLocalPartPrefix(match, local, domain) {
+  const prefix = String(match.value || "").toLowerCase();
+  // Namespace lock: require trailing "." so "yumi" cannot claim "yuminetflix".
+  // Bare vanity is match.type=address only (yumi@apex).
+  if (!prefix || !prefix.endsWith(".")) return false;
+  const wantDomain = String(match.domain || "").toLowerCase();
+  if (!wantDomain || domain !== wantDomain) return false;
+  return local.startsWith(prefix);
+}
+
+/**
  * @param {import('./config.js').RoutingConfig} config
  * @param {string} envelopeTo
  * @param {(cfg: object, to: string, dest?: object) => string} resolveDriver
  *
  * Rules supply extra destinations. default_inbox is **always** included when set,
  * unless the matched rule has `skip_default_inbox: true`. Dest emails are de-duped.
+ *
+ * Match tiers (higher wins regardless of YAML order within lower tiers):
+ *   1. address (exact envelope To)
+ *   2. local_part_prefix (first matching rule in YAML order)
+ *   3. catch_all (optional domain in match.value)
+ *   4. default_inbox / ingest-only
  */
 export function resolveDestinations(config, envelopeTo, resolveDriver) {
   const to = (envelopeTo || "").toLowerCase();
   const rules = config.rules || [];
+  const { local, domain } = splitEnvelopeTo(to);
 
   for (const rule of rules) {
     const m = rule.match || {};
@@ -94,7 +128,13 @@ export function resolveDestinations(config, envelopeTo, resolveDriver) {
     }
   }
 
-  const domain = to.includes("@") ? to.split("@").pop() : "";
+  for (const rule of rules) {
+    const m = rule.match || {};
+    if (m.type === "local_part_prefix" && matchLocalPartPrefix(m, local, domain)) {
+      return finalize(config, envelopeTo, rule, rule.destinations, resolveDriver);
+    }
+  }
+
   for (const rule of rules) {
     const m = rule.match || {};
     if (m.type === "catch_all") {

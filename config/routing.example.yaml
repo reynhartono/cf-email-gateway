@@ -36,10 +36,23 @@ defaults:
   reply_as: {}
 
 # Who may use r+ reply hop and send-proxy (Gmail From + CF auth evidence).
+# Prefer identities[] for multi-person ACL (docs/20); this list still merges in.
 token_auth:
   authorized_from:
     - me@gmail.com
   # - other@gmail.com
+
+# Optional multi-person ACL (compose From + reply hop our_mailbox + send-proxy alias).
+# When non-empty: each sender/bearer is bound to can_send_as prefixes.
+# identities:
+#   - id: alice
+#     authorized_from: [alice@gmail.com]
+#     compose_bearer: "replace-me-alice"
+#     can_send_as:
+#       - { type: local_part_prefix, value: "alice.", domain: example.com }
+#   - id: operator
+#     authorized_from: [me@gmail.com]
+#     unrestricted: true   # COMPOSE_API_TOKEN maps here
 
 # Per receiving apex. Unlisted domains still use the gateway + defaults.
 # Enable send_as for outbound From / send-proxy / reply hop on that apex.
@@ -62,15 +75,35 @@ domains:
     reply_as:
       enabled: false
 
-# Optional per-address routes. First address match wins, then catch_all.
+# Optional routes. Match tiers: address → local_part_prefix → catch_all → default_inbox.
 # default_inbox is always added on rule match unless skip_default_inbox: true.
+# Multi-person privacy: person rules should set skip_default_inbox: true (see docs/19).
 rules:
   - id: billing
     match:
-      type: address  # address | catch_all
+      type: address  # address | local_part_prefix | catch_all
       value: billing@example.com
     destinations:
       - email: finance@gmail.com
+
+  # Person namespace: alice.<anything>@example.com → Alice only (not operator default_inbox)
+  - id: alice-ns
+    skip_default_inbox: true
+    match:
+      type: local_part_prefix
+      value: "alice."
+      domain: example.com
+    destinations:
+      - email: alice@gmail.com
+
+  - id: bob-ns
+    skip_default_inbox: true
+    match:
+      type: local_part_prefix
+      value: "bob."
+      domain: example.com
+    destinations:
+      - email: bob@gmail.com
 
   - id: catch-example
     match:

@@ -46,3 +46,59 @@ Archive-only Worker zones (send_as false) still **cf_forward** + archive; no `r+
 ## default_inbox merge
 
 On rule match, `default_inbox` is **always merged** (deduped) unless `skip_default_inbox: true`.
+
+## Rule match types
+
+Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters **within** a tier):
+
+| Tier | `match.type` | Fields | Behavior |
+|------|--------------|--------|----------|
+| 1 | `address` | `value` = full addr | Exact envelope To |
+| 2 | `local_part_prefix` | `value` = prefix, **`domain` required** | Local-part `startsWith(value)` on that apex |
+| 3 | `catch_all` | optional `value` = apex | All remaining on that apex (or any if omitted) |
+| 4 | — | — | `default_inbox` if set, else ingest-only |
+
+### Prefix safety
+
+- **`local_part_prefix` requires a trailing `.`** on `value` (`alice.`). Without it the rule never matches (hard lock).
+- That lock stops glue-local bleed: `alice.` matches `alice.netflix@…` and **not** `alicenetflix@…` (another person may own the glued local).
+- Bare vanity is **`match.type: address`** only (`alice@apex`) — prefix alone never covers bare local.
+- Put **longer / more specific** prefixes **before** shorter ones in YAML (first match in tier 2 wins).
+- Empty `value` never matches.
+- **Do not** rely on `+` tags in aliases — many site validators reject `+`.
+- Multi-person / shared privacy domains: set **`skip_default_inbox: true`** on person rules or operator inbox is still merged.
+- **Outbound** (compose / send-proxy / reply hop): same bare + `person.` shapes via `identities[].can_send_as` — see `docs/20-identities.md`.
+
+### Multi-person privacy pattern (synthetic)
+
+Person owns a local-part namespace on one apex — **not** per-person subdomains:
+
+```yaml
+rules:
+  - id: alice-ns
+    skip_default_inbox: true
+    match:
+      type: local_part_prefix
+      value: "alice."
+      domain: example.com
+    destinations:
+      - email: alice@gmail.com
+
+  - id: bob-ns
+    skip_default_inbox: true
+    match:
+      type: local_part_prefix
+      value: "bob."
+      domain: example.com
+    destinations:
+      - email: bob@gmail.com
+
+  - id: example-unknown
+    skip_default_inbox: true
+    match: { type: catch_all, value: example.com }
+    destinations: []   # archive / ingest-only — do not spill to operator default_inbox
+```
+
+Addresses: `alice.netflix@example.com` → Alice; `bob.github@example.com` → Bob.  
+Bare vanity `alice@example.com` needs a separate `address` rule (prefix `alice.` does not match it).  
+See also `docs/19-multi-person-routing.md`.

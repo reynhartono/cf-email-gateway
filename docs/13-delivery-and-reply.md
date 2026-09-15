@@ -1,24 +1,25 @@
 # 13 — Delivery and reply
 
-## Inbound
+## Inbound (default)
 
 ```text
-cf_forward → message.forward(dest, { headers: X-CFEG-* })
+insert → archive? → cf_forward → message.forward(dest, { headers: X-CFEG-* })
 ```
 
 Do **not** rewrite MIME `Reply-To` (DKIM). Extension reads X-CFEG headers.
 
-## Reply hop
+## Reply hop (exception)
 
 ```text
 authorized From → r+TOKEN@ourdomain → SMTP From=our_mailbox → participant(s)
 ```
 
-Auth: `token_auth.authorized_from` + CF Authentication-Results pass (fail closed).
+Only when pattern ∧ authorized (else default cf_forward).  
+Auth: `token_auth.authorized_from` / identities + CF Authentication-Results pass (fail closed inside hop).
 
-## Send-proxy
+## Send-proxy (exception)
 
-See [17-send-proxy.md](./17-send-proxy.md).
+See [17-send-proxy.md](./17-send-proxy.md). Unauthorized proxy-shaped To stays on default forward.
 
 ## Body fidelity
 

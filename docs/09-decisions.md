@@ -21,6 +21,19 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q19–21 | default_inbox | Always merged on rule match unless skip |
 | B10 | Git hygiene | Examples + synthetic fixtures only; live routing/secrets/ids stay out of commits |
 | B15 | Dual-delivery | Rejected |
+| Q22 | Multi-person privacy domain | Apex local-part namespaces — not per-person subdomains |
+| Q23 | Rule match tiers | `address` → `local_part_prefix` → `catch_all` → default_inbox |
+| Q24 | local_part_prefix | `value` + required `domain`; empty prefix never matches; prefer trailing separator (e.g. `alice.`) |
+| Q25 | Plus-addressing | **Not supported** as a first-class match type — many site validators reject `+` |
+| Q26 | Person rules | `skip_default_inbox: true`; shared apex unknowns should not silently use operator default_inbox |
+| Q27 | Shared archive | Multi-person aliases still one operator archive (R2/D1) — not tenant isolation |
+| Q28 | identities | Optional; when set, compose/reply/send-proxy enforce mailbox ownership (`can_send_as`) |
+| Q29 | compose_bearer | Per-identity HTTP Bearer in ROUTING_YAML; COMPOSE_API_TOKEN → unrestricted identity only |
+| Q30 | Reply hop ACL | Token usable only if sender identity may send as `reply_routes.our_mailbox` |
+| Q31 | Inbound default | **cf_forward** (rules / default_inbox) after insert+archive; hop/proxy are **exceptions** only |
+| Q32 | Pattern shapes | `r+` / send-proxy To shapes are advisory; incomplete gates → stay on default forward (no outer reject blackhole) |
+| Q33 | Insert-first | D1 (+ archive) before special-route authz; every message leaves a row when insert succeeds |
+| Q34 | Exception entry | Hop/proxy only when **all** gates pass (auth + identity + can_send_as + token/resolve); Alice≠Bob alias → default forward |
 
 
 ## Not open
@@ -30,3 +43,8 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - ESP as Alice  
 - SUCCESS without archive when archive.enabled  
 - MIME Reply-To rewrite on forward (use X-CFEG)  
+- Per-person subdomain routing as the default multi-person design  
+- End-to-end archive isolation between people on one Worker  
+- First-class `local_part_plus` / plus-tag alias matchers  
+- Cross-identity token hop when identities are configured  
+- Authz-before-insert / exclusive early-return on r+ or proxy parse (blackholes accidental `+user=domain` To)  

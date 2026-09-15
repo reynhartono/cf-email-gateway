@@ -8,10 +8,15 @@ export function createMemoryDb() {
   const targets = new Map(); // id -> row
   const targetsByInbound = new Map(); // inbound_id -> ids[]
   const attempts = [];
+  const replyRoutes = new Map(); // token -> row
+  const replyParticipants = new Map(); // token -> rows[]
 
   function firstFromSelect(sql, binds) {
     if (sql.includes("FROM inbound_messages WHERE dedupe_key")) {
       return inbound.get(binds[0]) || null;
+    }
+    if (sql.includes("FROM reply_routes WHERE token")) {
+      return replyRoutes.get(binds[0]) || null;
     }
     return null;
   }
@@ -20,6 +25,8 @@ export function createMemoryDb() {
     _inbound: inbound,
     _targets: targets,
     _attempts: attempts,
+    _replyRoutes: replyRoutes,
+    _replyParticipants: replyParticipants,
     prepare(sql) {
       const self = {
         _binds: [],
@@ -151,12 +158,65 @@ export function createMemoryDb() {
             attempts.push(row);
             return { success: true };
           }
+          if (sql.startsWith("INSERT INTO reply_routes")) {
+            const [
+              token,
+              inbound_id,
+              our_domain,
+              our_mailbox,
+              created_at,
+              multiparty,
+              subject,
+            ] = self._binds;
+            replyRoutes.set(token, {
+              token,
+              inbound_id,
+              our_domain,
+              our_mailbox,
+              created_at,
+              multiparty,
+              subject,
+            });
+            return { success: true };
+          }
+          if (sql.startsWith("INSERT INTO reply_participants")) {
+            const [
+              id,
+              token,
+              email,
+              display_hint,
+              role,
+              local_suffix,
+              in_primary,
+              in_all,
+            ] = self._binds;
+            const row = {
+              id,
+              token,
+              email,
+              display_hint,
+              role,
+              local_suffix,
+              in_primary,
+              in_all,
+            };
+            if (!replyParticipants.has(token)) replyParticipants.set(token, []);
+            replyParticipants.get(token).push(row);
+            return { success: true };
+          }
           return { success: true };
         },
         async all() {
           if (sql.includes("FROM delivery_targets WHERE inbound_id")) {
             const ids = targetsByInbound.get(self._binds[0]) || [];
             return { results: ids.map((id) => ({ ...targets.get(id) })) };
+          }
+          if (sql.includes("FROM reply_participants WHERE token")) {
+            return {
+              results: (replyParticipants.get(self._binds[0]) || []).map((r) => ({
+                ...r,
+              })),
+            };
           }
           return { results: [] };
         },

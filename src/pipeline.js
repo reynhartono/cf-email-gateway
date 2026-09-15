@@ -1,5 +1,10 @@
 /**
  * Core inbound pipeline: archive B9, cf_forward + X-CFEG, send-proxy, reply hop.
+ *
+ * Default route = normal inbound (rules / default_inbox → cf_forward) after insert+archive.
+ * Exceptions (opt-in): authorized reply hop or send-proxy take over delivery only when
+ * the envelope matches that pattern AND the sender is authorized + identity-bound.
+ * Unauthorized pattern traffic stays on the default route (never outer setReject blackhole).
  */
 
 import {
@@ -26,6 +31,12 @@ import {
   parseSendProxyAddress,
   isAuthorizedSender,
 } from "./send_proxy.js";
+import {
+  assertMailboxAllowedOrThrow,
+  effectiveAuthorizedFrom,
+  resolveInboundActor,
+  identityMaySendAs,
+} from "./identity.js";
 import { buildForwardTokenHeaders } from "./forward_headers.js";
 import {
   parseReplyTokenAddress,
@@ -66,61 +77,29 @@ export async function handleInbound(env, message, config, hooks = {}) {
     rawSize: rawBytes.byteLength,
   });
 
+  // Detect special address shapes early, but do not branch yet.
+  // Unauthorized / unbound senders fall through to normal cf_forward.
   const replyTok = parseReplyTokenAddress(envelopeTo);
-  if (replyTok) {
-    logger.info("inbound.route", { invocationId, kind: "reply_token", token: replyTok.token, suffix: replyTok.suffix });
-    return handleReplyHop(env, message, config, hooks, {
-      invocationId,
-      now,
-      rawAb,
-      rawBytes,
-      rawText,
-      rawSha,
-      messageId,
-      envelopeFrom,
-      envelopeTo,
-      domain,
-      replyTok,
-    });
-  }
-
   const proxy = parseSendProxyAddress(envelopeTo);
-  if (proxy) {
-    logger.info("inbound.route", {
-      invocationId,
-      kind: "send_proxy",
-      fromEmail: proxy.fromEmail,
-      rcptEmail: proxy.rcptEmail,
-    });
-    return handleSendProxy(env, message, config, hooks, {
-      invocationId,
-      now,
-      rawAb,
-      rawBytes,
-      rawText,
-      rawSha,
-      messageId,
-      envelopeFrom,
-      envelopeTo,
-      domain,
-      proxy,
-    });
-  }
-
-
-  const dedupeKey = await dedupeKeyHex(envelopeFrom, envelopeTo, messageId, rawSha);
-
-  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
-  const isNew = !inbound;
 
   const matched = resolveDestinations(config, envelopeTo, resolveDriver);
   const wantArchive = archiveEnabled(config, matched.rule);
+  let destinations = matched.destinations;
+  const ruleId = matched.ruleId;
+
   logger.info("inbound.destinations", {
     invocationId,
-    ruleId: matched.ruleId,
-    dests: matched.destinations.map((d) => ({ email: d.email, method: d.method })),
+    ruleId,
+    dests: destinations.map((d) => ({ email: d.email, method: d.method })),
     wantArchive,
+    replyTok: Boolean(replyTok),
+    proxy: Boolean(proxy),
   });
+
+  // Insert-first: always record + archive before special-route authz.
+  const dedupeKey = await dedupeKeyHex(envelopeFrom, envelopeTo, messageId, rawSha);
+  let inbound = await db.getInboundByDedupe(env.DB, dedupeKey);
+  const isNew = !inbound;
 
   if (isNew) {
     inbound = {
@@ -138,7 +117,7 @@ export async function handleInbound(env, message, config, hooks = {}) {
       r2_key: null,
       raw_size: rawBytes.byteLength,
       archived_at: null,
-      rule_id: matched.ruleId,
+      rule_id: ruleId,
       status: "pending_deliveries",
       last_error: null,
     };
@@ -170,8 +149,35 @@ export async function handleInbound(env, message, config, hooks = {}) {
     }
   }
 
-  let destinations = matched.destinations;
+  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
+  const allowList = effectiveAuthorizedFrom(config);
+  const senderAuthorized =
+    isAuthorizedSender(envelopeFrom, allowList) ||
+    isAuthorizedSender(headerFrom, allowList);
+  const actor = senderAuthorized
+    ? resolveInboundActor(config, envelopeFrom, headerFrom)
+    : { ok: false };
 
+  // Exceptions to the default route (only when pattern ∧ authorized ∧ bound).
+  const exception = await tryDeliveryException(env, message, config, hooks, {
+    invocationId,
+    now,
+    rawAb,
+    rawBytes,
+    rawText,
+    rawSha,
+    messageId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    replyTok,
+    proxy,
+    senderAuthorized,
+    actor,
+  });
+  if (exception) return exception;
+
+  // ---- DEFAULT ROUTE: rules / default_inbox → cf_forward (+ X-CFEG) ----
   if (!destinations.length) {
     if (archiveOk || !wantArchive) {
       await db.updateInbound(env.DB, inbound.id, {
@@ -302,8 +308,170 @@ export async function handleInbound(env, message, config, hooks = {}) {
 }
 
 /**
+ * Opt-in exceptions to the default cf_forward route.
+ * Enter hop/proxy only when every gate passes; otherwise return null
+ * and stay on the default path (no setReject at the outer gate).
+ *
+ * Gates (all required):
+ *  - address shape matches (r+ or send-proxy)
+ *  - sender authorized_from / identity-bound
+ *  - mailbox ACL: proxy alias or token our_mailbox ∈ can_send_as (or unrestricted/legacy)
+ *  - reply: token row exists; CF auth looks pass (unless hooks.skipCfAuth)
+ *  - proxy: resolveMailFrom OK for alias@apex
+ */
+async function tryDeliveryException(env, message, config, hooks, ctx) {
+  const {
+    invocationId,
+    now,
+    rawAb,
+    rawBytes,
+    rawText,
+    rawSha,
+    messageId,
+    envelopeFrom,
+    envelopeTo,
+    domain,
+    replyTok,
+    proxy,
+    senderAuthorized,
+    actor,
+  } = ctx;
+
+  if (replyTok) {
+    const hop = await evaluateReplyException(env, config, hooks, {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+      replyTok,
+      senderAuthorized,
+      actor,
+      rawText,
+    });
+    if (hop.ok) {
+      logger.info("inbound.route", {
+        invocationId,
+        kind: "reply_token",
+        token: replyTok.token,
+        suffix: replyTok.suffix,
+      });
+      return handleReplyHop(env, message, config, hooks, {
+        invocationId,
+        now,
+        rawAb,
+        rawBytes,
+        rawText,
+        rawSha,
+        messageId,
+        envelopeFrom,
+        envelopeTo,
+        domain,
+        replyTok,
+      });
+    }
+    logger.warn("reply_token.exception_skipped", {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+      reason: hop.reason,
+    });
+  }
+
+  if (proxy) {
+    const pxy = evaluateProxyException(config, {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+      proxy,
+      senderAuthorized,
+      actor,
+    });
+    if (pxy.ok) {
+      logger.info("inbound.route", {
+        invocationId,
+        kind: "send_proxy",
+        fromEmail: proxy.fromEmail,
+        rcptEmail: proxy.rcptEmail,
+      });
+      return handleSendProxy(env, message, config, hooks, {
+        invocationId,
+        now,
+        rawAb,
+        rawBytes,
+        rawText,
+        rawSha,
+        messageId,
+        envelopeFrom,
+        envelopeTo,
+        domain,
+        proxy,
+      });
+    }
+    logger.warn("send_proxy.exception_skipped", {
+      invocationId,
+      envelopeFrom,
+      envelopeTo,
+      reason: pxy.reason,
+    });
+  }
+
+  return null;
+}
+
+/**
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+function evaluateProxyException(config, ctx) {
+  const { proxy, senderAuthorized, actor } = ctx;
+  if (!senderAuthorized) return { ok: false, reason: "sender_not_authorized" };
+  if (!actor.ok) return { ok: false, reason: "identity_unbound" };
+
+  const resolved = resolveMailFrom(config, proxy.fromEmail);
+  if (!resolved.ok) return { ok: false, reason: `send_proxy_from:${resolved.error}` };
+
+  if (!actor.legacy) {
+    if (!identityMaySendAs(actor.identity, resolved.mailFrom)) {
+      return { ok: false, reason: "identity_mailbox_denied" };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
+ */
+async function evaluateReplyException(env, config, hooks, ctx) {
+  const { replyTok, senderAuthorized, actor, rawText, envelopeFrom } = ctx;
+  if (!senderAuthorized) return { ok: false, reason: "sender_not_authorized" };
+  if (!actor.ok) return { ok: false, reason: "identity_unbound" };
+
+  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
+  if (
+    !hooks.skipCfAuth &&
+    !cfAuthLooksPass(rawText, headerFrom) &&
+    !cfAuthLooksPass(rawText, envelopeFrom)
+  ) {
+    return { ok: false, reason: "cf_auth_failed" };
+  }
+
+  const route = await db.getReplyRoute(env.DB, replyTok.token);
+  if (!route) return { ok: false, reason: "token_unknown" };
+
+  if (!actor.legacy) {
+    const hopMailbox = (
+      route.our_mailbox ||
+      `noreply@${route.our_domain}`
+    ).toLowerCase();
+    if (!identityMaySendAs(actor.identity, hopMailbox)) {
+      return { ok: false, reason: "identity_mailbox_denied" };
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * Gmail (authorized) → special To → SMTP as alias@ourdomain → real recipient.
- * Does not CF-forward to default_inbox (proxy only).
+ * Exception route: does not CF-forward to default_inbox on success.
+ * Precondition: tryDeliveryException already verified all gates.
  */
 async function handleSendProxy(env, message, config, hooks, ctx) {
   const {
@@ -321,7 +489,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
   } = ctx;
 
   const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  const allow = config.token_auth?.authorized_from || [];
+  const allow = effectiveAuthorizedFrom(config);
   if (
     !isAuthorizedSender(envelopeFrom, allow) &&
     !isAuthorizedSender(headerFrom, allow)
@@ -329,7 +497,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     // Reject — do not open relay
     try {
       message.setReject?.(
-        "send-proxy: sender not authorized (add Gmail to token_auth.authorized_from)",
+        "send-proxy: sender not authorized (add Gmail to token_auth.authorized_from or identities)",
       );
     } catch {
       /* ignore */
@@ -339,11 +507,38 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     throw err;
   }
 
+  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  if (!actor.ok) {
+    try {
+      message.setReject?.(`send-proxy: ${actor.error}`);
+    } catch {
+      /* ignore */
+    }
+    const err = new Error("send_proxy_identity_unbound");
+    err.retryable = false;
+    throw err;
+  }
+
   const resolved = resolveMailFrom(config, proxy.fromEmail);
   if (!resolved.ok) {
     const err = new Error(`send_proxy_from: ${resolved.error}`);
     err.retryable = false;
     throw err;
+  }
+
+  if (!actor.legacy) {
+    try {
+      assertMailboxAllowedOrThrow(actor.identity, resolved.mailFrom);
+    } catch (e) {
+      try {
+        message.setReject?.(`send-proxy: ${e.message}`);
+      } catch {
+        /* ignore */
+      }
+      const err = new Error("send_proxy_identity_mailbox_denied");
+      err.retryable = false;
+      throw err;
+    }
   }
 
   const subject = subjectFromRaw(rawText);
@@ -616,6 +811,7 @@ async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domai
 
 /**
  * Authorized Gmail → r+TOKEN@domain → ESP to original participant(s).
+ * Exception route over the default cf_forward path.
  */
 async function handleReplyHop(env, message, config, hooks, ctx) {
   const {
@@ -633,7 +829,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
   } = ctx;
 
   const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  const allow = config.token_auth?.authorized_from || [];
+  const allow = effectiveAuthorizedFrom(config);
   if (
     !isAuthorizedSender(envelopeFrom, allow) &&
     !isAuthorizedSender(headerFrom, allow)
@@ -644,6 +840,18 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
       /* */
     }
     const err = new Error("reply_token_unauthorized");
+    err.retryable = false;
+    throw err;
+  }
+
+  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  if (!actor.ok) {
+    try {
+      message.setReject?.(`reply-token: ${actor.error}`);
+    } catch {
+      /* */
+    }
+    const err = new Error("reply_token_identity_unbound");
     err.retryable = false;
     throw err;
   }
@@ -672,6 +880,26 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     const err = new Error("reply_token_unknown");
     err.retryable = false;
     throw err;
+  }
+
+  // Person may only hop tokens whose our_mailbox is in their can_send_as prefix.
+  if (!actor.legacy) {
+    const hopMailbox = (
+      route.our_mailbox ||
+      `noreply@${route.our_domain}`
+    ).toLowerCase();
+    try {
+      assertMailboxAllowedOrThrow(actor.identity, hopMailbox);
+    } catch (e) {
+      try {
+        message.setReject?.(`reply-token: ${e.message}`);
+      } catch {
+        /* */
+      }
+      const err = new Error("reply_token_identity_mailbox_denied");
+      err.retryable = false;
+      throw err;
+    }
   }
 
   const participants = await db.listReplyParticipants(env.DB, replyTok.token);

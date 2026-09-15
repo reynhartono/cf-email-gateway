@@ -6,6 +6,10 @@ import { resolveMailFrom } from "./mail_from.js";
 import { sendOutboundMime } from "./providers/send_outbound.js";
 import { hasSmtp } from "./providers/smtp.js";
 import { randomId } from "./util.js";
+import {
+  identityMaySendAs,
+  resolveComposeCaller,
+} from "./identity.js";
 
 /**
  * @param {Request} request
@@ -31,8 +35,11 @@ export async function handleCompose(request, env, config) {
     return json({ ok: false, error: "POST required" }, 405);
   }
 
-  const authErr = requireComposeAuth(request, env);
-  if (authErr) return authErr;
+  const got = bearerFromRequest(request);
+  const caller = resolveComposeCaller(config, got, env.COMPOSE_API_TOKEN);
+  if (!caller.ok) {
+    return json({ ok: false, error: caller.error }, caller.status || 401);
+  }
 
   let body;
   try {
@@ -52,6 +59,18 @@ export async function handleCompose(request, env, config) {
   const resolved = resolveMailFrom(config, requestedFrom);
   if (!resolved.ok) {
     return json({ ok: false, error: resolved.error }, 400);
+  }
+
+  if (!identityMaySendAs(caller.identity, resolved.mailFrom)) {
+    return json(
+      {
+        ok: false,
+        error: `identity ${caller.identity.id} not allowed to compose from ${resolved.mailFrom}`,
+        identity: caller.identity.id,
+        mail_from: resolved.mailFrom,
+      },
+      403,
+    );
   }
 
   const attachments = [];
@@ -85,6 +104,7 @@ export async function handleCompose(request, env, config) {
         error: result.error,
         compose_id: id,
         mail_from: resolved.mailFrom,
+        identity: caller.identity.id,
         provider_status: result.providerStatus,
       },
       502,
@@ -95,17 +115,22 @@ export async function handleCompose(request, env, config) {
     ok: true,
     compose_id: id,
     mail_from: resolved.mailFrom,
+    identity: caller.identity.id,
     provider_message_id: result.providerMessageId,
   });
 }
 
-function requireComposeAuth(request, env) {
+function bearerFromRequest(request) {
   const auth = request.headers.get("authorization") || "";
+  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : auth.trim();
+}
+
+function requireComposeAuth(request, env) {
   const token = env.COMPOSE_API_TOKEN;
   if (!token) {
     return json({ ok: false, error: "COMPOSE_API_TOKEN not configured" }, 503);
   }
-  const got = auth.startsWith("Bearer ") ? auth.slice(7).trim() : auth.trim();
+  const got = bearerFromRequest(request);
   if (got !== token) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }

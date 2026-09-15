@@ -155,6 +155,186 @@ describe("util", () => {
       ["finance@gmail.com"],
     );
   });
+
+  it("resolveDestinations local_part_prefix routes person namespace", () => {
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "alice-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    const hit = resolveDestinations(
+      c,
+      "alice.netflix@example.com",
+      resolveDriver,
+    );
+    assert.equal(hit.ruleId, "alice-ns");
+    assert.deepEqual(
+      hit.destinations.map((d) => d.email),
+      ["alice@gmail.com"],
+    );
+    const missOtherDomain = resolveDestinations(
+      c,
+      "alice.netflix@other.example",
+      resolveDriver,
+    );
+    assert.equal(missOtherDomain.ruleId, null);
+    assert.deepEqual(
+      missOtherDomain.destinations.map((d) => d.email),
+      ["me@gmail.com"],
+    );
+    const missBare = resolveDestinations(c, "alice@example.com", resolveDriver);
+    assert.equal(missBare.ruleId, null);
+    // Glue local must not match person. prefix (other user may own alicenetflix@)
+    const missGlue = resolveDestinations(
+      c,
+      "alicenetflix@example.com",
+      resolveDriver,
+    );
+    assert.equal(missGlue.ruleId, null);
+  });
+
+  it("resolveDestinations local_part_prefix without trailing dot never matches", () => {
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "bad-prefix",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice",
+            domain: "example.com",
+          },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(
+      resolveDestinations(c, "alice.netflix@example.com", resolveDriver).ruleId,
+      null,
+    );
+    assert.equal(
+      resolveDestinations(c, "alicenetflix@example.com", resolveDriver).ruleId,
+      null,
+    );
+  });
+
+  it("resolveDestinations match priority: address > local_part_prefix > catch_all", () => {
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "catch-ex",
+          skip_default_inbox: true,
+          match: { type: "catch_all", value: "example.com" },
+          destinations: [{ email: "catch@gmail.com" }],
+        },
+        {
+          id: "alice-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+        {
+          id: "alice-exact",
+          skip_default_inbox: true,
+          match: { type: "address", value: "alice.netflix@example.com" },
+          destinations: [{ email: "exact@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(
+      resolveDestinations(c, "alice.netflix@example.com", resolveDriver).ruleId,
+      "alice-exact",
+    );
+    assert.equal(
+      resolveDestinations(c, "alice.github@example.com", resolveDriver).ruleId,
+      "alice-ns",
+    );
+    assert.equal(
+      resolveDestinations(c, "unknown@example.com", resolveDriver).ruleId,
+      "catch-ex",
+    );
+  });
+
+  it("resolveDestinations local_part_prefix first-match among prefixes", () => {
+    const c = normalizeConfig({
+      version: 1,
+      rules: [
+        {
+          id: "alice-smith",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice.smith.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "smith@gmail.com" }],
+        },
+        {
+          id: "alice",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(
+      resolveDestinations(c, "alice.smith.work@example.com", resolveDriver)
+        .ruleId,
+      "alice-smith",
+    );
+    assert.equal(
+      resolveDestinations(c, "alice.work@example.com", resolveDriver).ruleId,
+      "alice",
+    );
+  });
+
+  it("resolveDestinations local_part_prefix ignores empty prefix", () => {
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "bad",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "",
+            domain: "example.com",
+          },
+          destinations: [{ email: "oops@gmail.com" }],
+        },
+      ],
+    });
+    const r = resolveDestinations(c, "anyone@example.com", resolveDriver);
+    assert.equal(r.ruleId, null);
+    assert.deepEqual(
+      r.destinations.map((d) => d.email),
+      ["me@gmail.com"],
+    );
+  });
 });
 
 describe("pipeline B9", () => {
