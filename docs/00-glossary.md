@@ -9,5 +9,6 @@
 | **compose** | HTTP `POST /v1/compose` → SMTP From our domain |
 | **default_inbox** | Fallback destination merged on rule match (unless skip) |
 | **local_part_prefix** | Rule match: local-part starts with `value` on required `domain` |
+| **subaddress normalize** | Strip `+tag` from local for rule / `can_send_as` match only (`alice+x` → `alice`); not for r+/send-proxy grammar; raw envelope To unchanged |
 | **B9** | Archive + delivery same run; SUCCESS only if both required paths ok |
 | **ROUTING_YAML** | Wrangler secret holding live routing config |

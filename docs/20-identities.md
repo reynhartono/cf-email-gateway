@@ -84,10 +84,12 @@ Receive prefix and `can_send_as` prefix should match so Alice only sees (and can
 | Allowed for person `alice` | Denied |
 |----------------------------|--------|
 | `alice@example.com` (`type: address`) | `alicenetflix@example.com` (glue local — other user may own) |
-| `alice.netflix@example.com` (`local_part_prefix` `alice.`) | `alice` prefix **without** trailing `.` (ignored / no match) |
-| `alice.anything@example.com` | `bob.…@example.com` |
+| `alice+promo@example.com` (subaddress → bare) | `alice` prefix **without** trailing `.` (ignored / no match) |
+| `alice.netflix@example.com` (`local_part_prefix` `alice.`) | `bob.…@example.com` |
+| `alice.netflix+id@example.com` (subaddress → ns) | |
+| `alice.anything@example.com` | |
 
-`local_part_prefix` in `can_send_as` uses the same trailing-`.` lock as inbound rules.
+`local_part_prefix` in `can_send_as` uses the same trailing-`.` lock **and** the same subaddress normalize as inbound rules.
 
 ## Security notes
 

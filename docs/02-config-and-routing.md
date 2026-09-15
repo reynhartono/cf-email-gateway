@@ -53,10 +53,21 @@ Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters 
 
 | Tier | `match.type` | Fields | Behavior |
 |------|--------------|--------|----------|
-| 1 | `address` | `value` = full addr | Exact envelope To |
-| 2 | `local_part_prefix` | `value` = prefix, **`domain` required** | Local-part `startsWith(value)` on that apex |
+| 1 | `address` | `value` = full addr | Exact on **routing-normalized** local + domain |
+| 2 | `local_part_prefix` | `value` = prefix, **`domain` required** | Normalized local-part `startsWith(value)` on that apex |
 | 3 | `catch_all` | optional `value` = apex | All remaining on that apex (or any if omitted) |
 | 4 | — | — | `default_inbox` if set, else ingest-only |
+
+### Subaddress (plus-tag) normalize for match
+
+For **rule evaluation only**, the local-part is passed through `normalizeLocalForRouting`:
+
+- Person tags: `alice+promo@…` → base `alice` (bare `address` hit); `alice.netflix+id1@…` → base `alice.netflix` → still `alice.` prefix.
+- Strip is **before the first `+` only** — never glue-concat toward `alicepromo`.
+- **Do not strip** when the local matches reply-token (`r+TOKEN…`) or send-proxy (`alias+user=domain`) grammar — exception-skip fallback must not rewrite to bare `r@` / stripped alias.
+- Envelope To in D1 / logs / archive stays the **raw** address. Dedupe keeps raw To (do not merge `alice@` vs `alice+a@`).
+- **Published multi-person aliases** stay `person@` and `person.service@` (dot namespace). Many site validators reject `+` in the *published* alias — that constraint remains; inbound still honors Gmail-style tags on those stable bases.
+- Outbound `identities.can_send_as` uses the **same** normalize on From / hop mailbox.
 
 ### Prefix safety
 
@@ -65,7 +76,6 @@ Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters 
 - Bare vanity is **`match.type: address`** only (`alice@apex`) — prefix alone never covers bare local.
 - Put **longer / more specific** prefixes **before** shorter ones in YAML (first match in tier 2 wins).
 - Empty `value` never matches.
-- **Do not** rely on `+` tags in aliases — many site validators reject `+`.
 - Multi-person / shared privacy domains: set **`skip_default_inbox: true`** on person rules or operator inbox is still merged.
 - **Outbound** (compose / send-proxy / reply hop): same bare + `person.` shapes via `identities[].can_send_as` — see `docs/20-identities.md`.
 

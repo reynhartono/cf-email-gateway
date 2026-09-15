@@ -18,7 +18,8 @@ Share one catch-all apex (privacy mail domain) among several people without:
 | Unknowns | Domain-scoped `catch_all` → ingest-only or explicit ops mailbox — **not** operator default merge |
 | Reply / send-proxy | Apex `send_as.enabled`; each sender in `token_auth.authorized_from` |
 | Archive | Still **shared** R2/D1 under the operator — not end-to-end multi-tenant isolation |
-| Avoid | `+` in aliases — many validators reject plus-addressing |
+| Avoid as **published** alias | `person+service@` — many validators reject plus-addressing; use dot namespace instead |
+| Inbound tags OK | `alice+promo@` / `alice.netflix+id@` strip to base for **rule match only** (raw To kept in D1) |
 
 ## Addressing conventions
 
@@ -26,6 +27,9 @@ Share one catch-all apex (privacy mail domain) among several people without:
 |-------|---------|---------|
 | Person + dot service | `alice.netflix@example.com` | `local_part_prefix` `value: "alice."` |
 | Vanity exact | `alice@example.com` | `address` (prefix `alice.` does **not** match bare `alice@`) |
+| Subaddress on bare | `alice+promo@example.com` | same bare `address` after normalize |
+| Subaddress on ns | `alice.netflix+id1@example.com` | same `alice.` prefix after normalize |
+| Glue (denied) | `alicenetflix@example.com` | no match on `alice.` |
 
 Prefer stable handles (`alice.`) over single-letter (`a.`) unless the set is tiny and fixed.
 

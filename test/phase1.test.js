@@ -15,6 +15,7 @@ import {
 import {
   dedupeKeyHex,
   getHeader,
+  normalizeLocalForRouting,
   resolveDestinations,
 } from "../src/util.js";
 import { handleInbound } from "../src/pipeline.js";
@@ -308,6 +309,87 @@ describe("util", () => {
     assert.equal(
       resolveDestinations(c, "alice.work@example.com", resolveDriver).ruleId,
       "alice",
+    );
+  });
+
+  it("normalizeLocalForRouting strips person plus-tags; keeps r+/proxy", () => {
+    assert.equal(normalizeLocalForRouting("alice+promo"), "alice");
+    assert.equal(normalizeLocalForRouting("alice.netflix+id1"), "alice.netflix");
+    assert.equal(normalizeLocalForRouting("alicenetflix"), "alicenetflix");
+    assert.equal(normalizeLocalForRouting("r+abc123"), "r+abc123");
+    assert.equal(normalizeLocalForRouting("r+abc123.p1"), "r+abc123.p1");
+    assert.equal(
+      normalizeLocalForRouting("alice+bob=gmail.com"),
+      "alice+bob=gmail.com",
+    );
+  });
+
+  it("resolveDestinations honors subaddress tags on address and prefix", () => {
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "alice-bare",
+          skip_default_inbox: true,
+          match: { type: "address", value: "alice@example.com" },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+        {
+          id: "alice-smith",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice.smith.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "smith@gmail.com" }],
+        },
+        {
+          id: "alice-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "alice.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(
+      resolveDestinations(c, "alice+promo@example.com", resolveDriver).ruleId,
+      "alice-bare",
+    );
+    assert.equal(
+      resolveDestinations(c, "alice@example.com", resolveDriver).ruleId,
+      "alice-bare",
+    );
+    assert.equal(
+      resolveDestinations(c, "alice.netflix+id1@example.com", resolveDriver)
+        .ruleId,
+      "alice-ns",
+    );
+    // Longer prefix still first-match on base after strip
+    assert.equal(
+      resolveDestinations(c, "alice.smith.work+x@example.com", resolveDriver)
+        .ruleId,
+      "alice-smith",
+    );
+    // Glue local still must not match alice.
+    assert.equal(
+      resolveDestinations(c, "alicenetflix@example.com", resolveDriver).ruleId,
+      null,
+    );
+    // Exception shapes: no strip → do not match bare r@ or stripped alias
+    assert.equal(
+      resolveDestinations(c, "r+abc123@example.com", resolveDriver).ruleId,
+      null,
+    );
+    assert.equal(
+      resolveDestinations(c, "alice+bob=gmail.com@example.com", resolveDriver)
+        .ruleId,
+      null,
     );
   });
 

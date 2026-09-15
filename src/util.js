@@ -88,6 +88,46 @@ export function splitEnvelopeTo(toLower) {
 }
 
 /**
+ * Reply-token local grammar (mirrors parseReplyTokenAddress) — keep in sync.
+ * @param {string} local
+ */
+function isReplyTokenLocal(local) {
+  return /^r\+([a-z0-9]+)(?:\.(all|p\d+))?$/i.test(String(local || ""));
+}
+
+/**
+ * Send-proxy local grammar (mirrors parseSendProxyAddress) — keep in sync.
+ * Requires + and = (person tags like alice+promo have no =).
+ * @param {string} local
+ */
+function isSendProxyLocal(local) {
+  const s = String(local || "");
+  if (!s.includes("+") || !s.includes("=")) return false;
+  return /^([^+{]+)(?:\{([^}]*)\})?\+([^=,{]+)(?:\{([^}]*)\})?=([^@]+)$/i.test(s);
+}
+
+/**
+ * RFC 5233-style plus-tag strip for **rule / can_send_as match only**.
+ * Does not rewrite envelope To stored in D1 / logs / archive.
+ *
+ * - Person tags: `alice+promo` → `alice`; `alice.netflix+id` → `alice.netflix`
+ * - Never glue-concat (no `alicepromo`)
+ * - Leave r+TOKEN and send-proxy (`alias+user=domain`) locals unchanged so
+ *   exception-skip fallback does not match a fictional bare `r@` / stripped alias
+ *
+ * @param {string} local already-lowercased local-part
+ * @returns {string}
+ */
+export function normalizeLocalForRouting(local) {
+  const s = String(local || "");
+  if (!s) return s;
+  if (isReplyTokenLocal(s) || isSendProxyLocal(s)) return s;
+  const plus = s.indexOf("+");
+  if (plus >= 0) return s.slice(0, plus);
+  return s;
+}
+
+/**
  * @param {object} match rule.match
  * @param {string} local
  * @param {string} domain
@@ -111,26 +151,34 @@ function matchLocalPartPrefix(match, local, domain) {
  * unless the matched rule has `skip_default_inbox: true`. Dest emails are de-duped.
  *
  * Match tiers (higher wins regardless of YAML order within lower tiers):
- *   1. address (exact envelope To)
- *   2. local_part_prefix (first matching rule in YAML order)
+ *   1. address (exact on subaddress-normalized local + domain)
+ *   2. local_part_prefix (first matching rule in YAML order; normalized local)
  *   3. catch_all (optional domain in match.value)
  *   4. default_inbox / ingest-only
+ *
+ * Envelope To stored elsewhere stays raw; only match input is normalized.
  */
 export function resolveDestinations(config, envelopeTo, resolveDriver) {
   const to = (envelopeTo || "").toLowerCase();
   const rules = config.rules || [];
   const { local, domain } = splitEnvelopeTo(to);
+  const routingLocal = normalizeLocalForRouting(local);
+  const routingTo =
+    routingLocal && domain ? `${routingLocal}@${domain}` : to;
 
   for (const rule of rules) {
     const m = rule.match || {};
-    if (m.type === "address" && (m.value || "").toLowerCase() === to) {
+    if (m.type === "address" && (m.value || "").toLowerCase() === routingTo) {
       return finalize(config, envelopeTo, rule, rule.destinations, resolveDriver);
     }
   }
 
   for (const rule of rules) {
     const m = rule.match || {};
-    if (m.type === "local_part_prefix" && matchLocalPartPrefix(m, local, domain)) {
+    if (
+      m.type === "local_part_prefix" &&
+      matchLocalPartPrefix(m, routingLocal, domain)
+    ) {
       return finalize(config, envelopeTo, rule, rule.destinations, resolveDriver);
     }
   }

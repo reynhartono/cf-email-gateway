@@ -5,7 +5,7 @@
  * When empty, legacy behavior (global token_auth.authorized_from + open compose From).
  */
 
-import { splitEnvelopeTo } from "./util.js";
+import { normalizeLocalForRouting, splitEnvelopeTo } from "./util.js";
 
 /**
  * @param {object} raw
@@ -168,10 +168,14 @@ export function identityMaySendAs(identity, mailbox) {
   const mb = normalizeEmail(mailbox);
   if (!mb.includes("@")) return false;
   const { local, domain } = splitEnvelopeTo(mb);
+  // Same subaddress strip as inbound rule match (alice+tag → alice).
+  const routingLocal = normalizeLocalForRouting(local);
+  const routingMb =
+    routingLocal && domain ? `${routingLocal}@${domain}` : mb;
 
   for (const m of identity.can_send_as || []) {
     if (m.type === "address") {
-      if ((m.value || "").toLowerCase() === mb) return true;
+      if ((m.value || "").toLowerCase() === routingMb) return true;
       continue;
     }
     if (m.type === "local_part_prefix") {
@@ -180,7 +184,7 @@ export function identityMaySendAs(identity, mailbox) {
       // Same lock as inbound: trailing "." required — bare local is type=address only.
       // "yumi." allows yumi.netflix@; rejects yuminetflix@ (other person may own that local).
       if (!prefix || !prefix.endsWith(".") || !wantDomain) continue;
-      if (domain === wantDomain && local.startsWith(prefix)) return true;
+      if (domain === wantDomain && routingLocal.startsWith(prefix)) return true;
     }
   }
   return false;
