@@ -24,7 +24,7 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q22 | Multi-person privacy domain | Apex local-part namespaces — not per-person subdomains |
 | Q23 | Rule match tiers | `address` → `local_part_prefix` → `catch_all` → default_inbox |
 | Q24 | local_part_prefix | `value` + required `domain`; empty prefix never matches; prefer trailing separator (e.g. `alice.`) |
-| Q25 | Plus-addressing | **Not supported** as a first-class match type — many site validators reject `+` |
+| Q25 | Plus-addressing as **published** alias | **Not** a first-class multi-person scheme (`person+service@`) — many site validators reject `+`; use bare + `person.` |
 | Q26 | Person rules | `skip_default_inbox: true`; shared apex unknowns should not silently use operator default_inbox |
 | Q27 | Shared archive | Multi-person aliases still one operator archive (R2/D1) — not tenant isolation |
 | Q28 | identities | Optional; when set, compose/reply/send-proxy enforce mailbox ownership (`can_send_as`) |
@@ -34,6 +34,8 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q32 | Pattern shapes | `r+` / send-proxy To shapes are advisory; incomplete gates → stay on default forward (no outer reject blackhole) |
 | Q33 | Insert-first | D1 (+ archive) before special-route authz; every message leaves a row when insert succeeds |
 | Q34 | Exception entry | Hop/proxy only when **all** gates pass (auth + identity + can_send_as + token/resolve); Alice≠Bob alias → default forward |
+| Q35 | Inbound subaddress | Strip `+tag` for **rule match** only (`alice+promo` → `alice`); raw To in D1/logs; no strip on r+/send-proxy grammar |
+| Q36 | can_send_as + tags | Same normalize on outbound From / hop mailbox; unrestricted unchanged; dedupe still raw To |
 
 
 ## Not open
@@ -45,6 +47,8 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - MIME Reply-To rewrite on forward (use X-CFEG)  
 - Per-person subdomain routing as the default multi-person design  
 - End-to-end archive isolation between people on one Worker  
-- First-class `local_part_plus` / plus-tag alias matchers  
+- First-class `local_part_plus` / plus-tag **published multi-person** alias matchers (inbound tag strip on stable bare/prefix is Q35)  
 - Cross-identity token hop when identities are configured  
 - Authz-before-insert / exclusive early-return on r+ or proxy parse (blackholes accidental `+user=domain` To)  
+- Stripping r+/send-proxy locals before rule match (would invent bare `r@` / wrong alias on exception skip)  
+- Merging dedupe keys across `alice@` vs `alice+tag@` 

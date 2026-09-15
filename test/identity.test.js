@@ -65,6 +65,18 @@ describe("identity ACL", () => {
     assert.equal(identityMaySendAs(alice, "alice@other.example"), false);
   });
 
+  it("identityMaySendAs honors subaddress tags on From mailbox", () => {
+    const c = cfg();
+    const alice = findIdentityByAuthorizedFrom(c, "alice@gmail.com");
+    assert.equal(identityMaySendAs(alice, "alice+promo@example.com"), true);
+    assert.equal(
+      identityMaySendAs(alice, "alice.netflix+id1@example.com"),
+      true,
+    );
+    assert.equal(identityMaySendAs(alice, "alicenetflix@example.com"), false);
+    assert.equal(identityMaySendAs(alice, "bob+x@example.com"), false);
+  });
+
   it("identityMaySendAs rejects glue-local bleed (alicenetflix) and bare-prefix misconfig", () => {
     const c = cfg();
     const alice = findIdentityByAuthorizedFrom(c, "alice@gmail.com");
