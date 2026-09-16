@@ -149,7 +149,6 @@ export async function handleInbound(env, message, config, hooks = {}) {
     }
   }
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allowList = effectiveAuthorizedFrom(config);
   // Exception authz uses envelope From only — MIME From is spoofable and must
   // not grant hop/proxy by itself (paired with CF auth on the same identity).
