@@ -17,7 +17,7 @@ authorized From → r+TOKEN@ourdomain → SMTP From=our_mailbox → participant(
 Only when pattern ∧ authorized (else default cf_forward).  
 Auth: `token_auth.authorized_from` / identities **+** CF Authentication-Results **aligned pass** on the **envelope From** (fail closed inside hop). MIME `From` is not used for hop/proxy allowlist or CF auth (spoofable).
 
-`cfAuthLooksPass` (shared with send-proxy) requires a Cloudflare authserv `Authentication-Results` / ARC line (Email Routing injects these; client-only AR fails closed) with a `dkim` / `spf` / `dmarc` **pass** whose domain props align to the **envelope** identity being authorized. Gmail envelope must align to the google/gmail ecosystem (Q39 / issue #7). Domain alignment is relaxed (subdomain OK).
+`cfAuthLooksPass` (shared with send-proxy) requires a Cloudflare authserv `Authentication-Results` / ARC line whose authserv-id is `cloudflare.net` or a DNS-label under `.cloudflare.net` (typically `mx.cloudflare.net`; Email Routing injects these). Substring spoofs (`notcloudflare.net`, `cloudflare.evil`) and client-only AR fail closed. Aligned `dkim` / `spf` / `dmarc` **pass** must match the **envelope** identity being authorized. Gmail envelope must align to the google/gmail ecosystem (Q39 / issue #7 / #13). Domain alignment is relaxed (subdomain OK).
 
 ## Send-proxy (exception)
 

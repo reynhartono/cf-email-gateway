@@ -7,6 +7,7 @@ import {
   cfAuthLooksPass,
   domainsAlignForAuth,
   parseAuthenticationResults,
+  isCloudflareAuthservId,
 } from "../src/reply_tokens.js";
 import { getAllHeaders, getHeader } from "../src/util.js";
 
@@ -200,6 +201,54 @@ describe("reply_tokens", () => {
     const arc =
       "ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=corp.example\r\nFrom: bob@corp.example\r\n\r\nx";
     assert.equal(cfAuthLooksPass(arc, "bob@corp.example"), true);
+  });
+
+  it("isCloudflareAuthservId rejects substring spoofs (issue #13)", () => {
+    assert.equal(isCloudflareAuthservId("mx.cloudflare.net"), true);
+    assert.equal(isCloudflareAuthservId("cloudflare.net"), true);
+    assert.equal(isCloudflareAuthservId("email.mx.cloudflare.net"), true);
+    assert.equal(isCloudflareAuthservId("MX.CLOUDFLARE.NET"), true);
+    assert.equal(isCloudflareAuthservId("mx.cloudflare.net."), true);
+
+    assert.equal(isCloudflareAuthservId("notcloudflare.net"), false);
+    assert.equal(isCloudflareAuthservId("cloudflare.evil"), false);
+    assert.equal(isCloudflareAuthservId("evil.cloudflare.attacker"), false);
+    assert.equal(isCloudflareAuthservId("cloudflare"), false);
+    assert.equal(isCloudflareAuthservId("cloudflare.com"), false);
+    assert.equal(isCloudflareAuthservId("mail.example.com"), false);
+    assert.equal(isCloudflareAuthservId(""), false);
+  });
+
+  it("cfAuthLooksPass rejects spoofed cloudflare-substring authserv (issue #13)", () => {
+    const alignedProps =
+      "dkim=pass header.d=gmail.com header.i=@gmail.com; spf=pass smtp.mailfrom=a@gmail.com";
+
+    for (const spoof of [
+      "notcloudflare.net",
+      "cloudflare.evil",
+      "evil.cloudflare.attacker",
+    ]) {
+      const raw = `Authentication-Results: ${spoof}; ${alignedProps}\r\nFrom: a@gmail.com\r\n\r\nx`;
+      assert.equal(
+        cfAuthLooksPass(raw, "a@gmail.com"),
+        false,
+        `spoof authserv ${spoof} must fail closed`,
+      );
+    }
+
+    // Legitimate CF authserv still passes
+    const legit = `Authentication-Results: mx.cloudflare.net; ${alignedProps}\r\nFrom: a@gmail.com\r\n\r\nx`;
+    assert.equal(cfAuthLooksPass(legit, "a@gmail.com"), true);
+
+    // Spoof aligned pass must not override real CF fail
+    const spoofPlusCfFail = [
+      `Authentication-Results: notcloudflare.net; ${alignedProps}`,
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com; spf=fail smtp.mailfrom=a@gmail.com",
+      "From: a@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(spoofPlusCfFail, "a@gmail.com"), false);
   });
 
   it("domainsAlignForAuth and parseAuthenticationResults helpers", () => {

@@ -403,10 +403,30 @@ export function parseAuthenticationResults(arValue) {
 }
 
 /**
+ * True when authserv-id is Cloudflare Email Routing's receiving ADMD.
+ * Exact `cloudflare.net` or a DNS-label suffix under `.cloudflare.net`
+ * (e.g. `mx.cloudflare.net`). Rejects substring spoofs such as
+ * `notcloudflare.net`, `cloudflare.evil`, `evil.cloudflare.attacker`.
+ * @param {string} authservId
+ */
+export function isCloudflareAuthservId(authservId) {
+  const id = String(authservId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (!id) return false;
+  // Strip optional authserv version token already handled by parser; harden
+  // against accidental "host:port" or trailing junk in first token.
+  const host = id.split(":")[0];
+  return host === "cloudflare.net" || host.endsWith(".cloudflare.net");
+}
+
+/**
  * Collect Authentication-Results / ARC-Authentication-Results from the
- * receiving ADMD only. Cloudflare Email Routing injects an authserv-id
- * containing "cloudflare"; client-supplied AR alone must not authorize
- * hop/proxy (fail closed if no CF line is present).
+ * receiving ADMD only. Cloudflare Email Routing injects authserv-id under
+ * `cloudflare.net` (typically `mx.cloudflare.net`); client-supplied AR alone
+ * must not authorize hop/proxy (fail closed if no CF line is present).
+ * Authserv match is strict suffix/allowlist — not a `/cloudflare/i` substring.
  * @param {string} rawText
  * @returns {string[]}
  */
@@ -416,7 +436,7 @@ function collectAuthResultsHeaders(rawText) {
   const all = [...ar, ...arc];
   return all.filter((v) => {
     const id = parseAuthenticationResults(v).authservId;
-    return /cloudflare/i.test(id);
+    return isCloudflareAuthservId(id);
   });
 }
 
