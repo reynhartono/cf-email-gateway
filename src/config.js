@@ -98,6 +98,43 @@ function normalizeSendAs(sa) {
 }
 
 /**
+ * Optional rule.display_name for outbound MIME From (Q42).
+ * @param {unknown} raw
+ * @param {string} where
+ * @returns {string | undefined}
+ */
+export function normalizeDisplayName(raw, where = "display_name") {
+  if (raw == null || raw === "") return undefined;
+  const s = String(raw);
+  if (/[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(s)) {
+    throw new Error(`routing config: ${where} contains control characters`);
+  }
+  const display = s.trim();
+  if (!display) {
+    throw new Error(`routing config: ${where} must be a non-empty string`);
+  }
+  return display;
+}
+
+/**
+ * @param {object} rule
+ * @param {number} index
+ */
+function normalizeRule(rule, index) {
+  if (!rule || typeof rule !== "object") return rule;
+  const id = rule.id != null ? String(rule.id) : `rules[${index}]`;
+  const out = { ...rule };
+  const rawName = out.display_name ?? out.displayName;
+  delete out.displayName;
+  if (rawName != null && rawName !== "") {
+    out.display_name = normalizeDisplayName(rawName, `${id}.display_name`);
+  } else {
+    delete out.display_name;
+  }
+  return out;
+}
+
+/**
  * @param {object} raw
  */
 export function normalizeConfig(raw) {
@@ -124,9 +161,25 @@ export function normalizeConfig(raw) {
       if (d.send_as && typeof d.send_as === "object") {
         d.send_as = normalizeSendAs({ ...sendAs, ...d.send_as });
       }
+      // Q42: optional domain-wide From display fallback
+      const domName = d.display_name ?? d.displayName;
+      delete d.displayName;
+      if (domName != null && domName !== "") {
+        d.display_name = normalizeDisplayName(
+          domName,
+          `domains.${k}.display_name`,
+        );
+      } else {
+        delete d.display_name;
+      }
       domains[k] = d;
     }
   }
+
+  const defaultsDisplay = normalizeDisplayName(
+    defaults.display_name ?? defaults.displayName,
+    "defaults.display_name",
+  );
 
   const config = {
     version: 1,
@@ -136,6 +189,7 @@ export function normalizeConfig(raw) {
       provider: defaults.provider ?? "smtp",
       send_as: sendAs,
       reply_as: defaults.reply_as ?? {},
+      ...(defaultsDisplay ? { display_name: defaultsDisplay } : {}),
     },
     compose: {
       default_from: raw.compose?.default_from ?? undefined,
@@ -151,7 +205,9 @@ export function normalizeConfig(raw) {
     },
     identities: normalizeIdentities(raw),
     domains,
-    rules: Array.isArray(raw.rules) ? raw.rules : [],
+    rules: Array.isArray(raw.rules)
+      ? raw.rules.map((r, i) => normalizeRule(r, i))
+      : [],
   };
   assertNoReservedPersonLocal(config);
   return config;

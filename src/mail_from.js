@@ -3,6 +3,55 @@
  */
 
 import { recipientDomain } from "./config.js";
+import { resolveRuleDisplayName } from "./util.js";
+
+/**
+ * Bare mailbox address for display-name lookup (strip optional "Name" <addr>).
+ * @param {string} email
+ * @returns {string}
+ */
+export function bareMailboxAddress(email) {
+  let s = String(email || "").trim();
+  const angle = s.match(/<([^>]+@[^>]+)>/);
+  if (angle) s = angle[1].trim();
+  return s.toLowerCase();
+}
+
+/**
+ * Configured From display name (Q42): rules → domain → defaults.
+ * Tries mailFrom first, then optional extra candidates (e.g. pre-remap address).
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} email
+ * @param {string[]} [alsoTry]
+ * @returns {string | undefined}
+ */
+export function resolveConfiguredDisplayName(config, email, alsoTry = []) {
+  const keys = [email, ...alsoTry]
+    .map((e) => bareMailboxAddress(e))
+    .filter(Boolean);
+  const seen = new Set();
+  for (const k of keys) {
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const name = resolveRuleDisplayName(config, k);
+    if (name) return name;
+  }
+  return undefined;
+}
+
+/**
+ * Prefer explicit display, else configured rule/domain/defaults name (Q42).
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string | undefined | null} explicit
+ * @param {string} mailFrom
+ * @param {string[]} [alsoTry]
+ * @returns {string | undefined}
+ */
+export function pickFromDisplayName(config, explicit, mailFrom, alsoTry = []) {
+  const e = explicit != null ? String(explicit).trim() : "";
+  if (e) return e;
+  return resolveConfiguredDisplayName(config, mailFrom, alsoTry);
+}
 
 /**
  * @param {import('./config.js').RoutingConfig} config

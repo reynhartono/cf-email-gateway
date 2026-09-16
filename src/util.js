@@ -226,7 +226,7 @@ export function normalizeLocalForRouting(local, opts = {}) {
  * @param {string} local
  * @param {string} domain
  */
-function matchLocalPartPrefix(match, local, domain) {
+export function matchLocalPartPrefix(match, local, domain) {
   if (matchClaimsReservedLocal(match)) return false;
   const prefix = String(match.value || "").toLowerCase();
   // Namespace lock: require trailing "." so "yumi" cannot claim "yuminetflix".
@@ -237,6 +237,64 @@ function matchLocalPartPrefix(match, local, domain) {
   // Defense: never treat routing local `r` / `r.*` as a normal person hit.
   if (isReservedPersonLocal(local)) return false;
   return local.startsWith(prefix);
+}
+
+/**
+ * Outbound From display name (Q42).
+ * Tiers (first hit wins):
+ *   1. rule match.type=address with optional display_name
+ *   2. rule match.type=local_part_prefix with optional display_name
+ *   3. domains.<apex>.display_name (domain default when no rule name)
+ *   4. defaults.display_name (global fallback)
+ * catch_all rules are not used for From display. Rule display_name is always
+ * optional — omit → fall through. Subaddress-normalized local for match input.
+ *
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} mailbox - full alias / our_mailbox / mailFrom
+ * @returns {string | undefined}
+ */
+export function resolveRuleDisplayName(config, mailbox) {
+  const to = String(mailbox || "")
+    .trim()
+    .toLowerCase();
+  if (!to || !to.includes("@")) return undefined;
+  const rules = config?.rules || [];
+  const { local, domain } = splitEnvelopeTo(to);
+  const routingLocal = normalizeLocalForRouting(local, { purpose: "rule_match" });
+  const routingTo =
+    routingLocal && domain ? `${routingLocal}@${domain}` : to;
+
+  for (const rule of rules) {
+    const m = rule?.match || {};
+    if (m.type !== "address") continue;
+    if (matchClaimsReservedLocal(m)) continue;
+    if (isReservedPersonLocal(routingLocal)) continue;
+    if ((m.value || "").toLowerCase() !== routingTo) continue;
+    const name = String(rule.display_name || "").trim();
+    if (name) return name;
+    // Matched address rule without display_name → keep looking (prefix / domain)
+  }
+
+  for (const rule of rules) {
+    const m = rule?.match || {};
+    if (m.type !== "local_part_prefix") continue;
+    if (!matchLocalPartPrefix(m, routingLocal, domain)) continue;
+    const name = String(rule.display_name || "").trim();
+    if (name) return name;
+    // Matched prefix without name → keep looking (domain default)
+  }
+
+  if (domain) {
+    const domName = String(
+      config?.domains?.[domain]?.display_name || "",
+    ).trim();
+    if (domName) return domName;
+  }
+
+  const defName = String(config?.defaults?.display_name || "").trim();
+  if (defName) return defName;
+
+  return undefined;
 }
 
 /**
