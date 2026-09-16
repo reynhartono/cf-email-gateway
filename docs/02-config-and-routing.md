@@ -3,9 +3,9 @@
 SoT example (docs / copy-paste only): `config/routing.example.yaml`.  
 **Live runtime SoT:** non-empty wrangler secret `ROUTING_YAML` (from a gitignored local file).  
 
-Missing, empty, or unparsable `ROUTING_YAML` **fails closed** (Q41): inbound email throws; HTTP compose/selftest returns **503**. `/health` stays up and reports `routing_ok: false`. There is **no** silent fallback to the bundled example.  
+Missing, empty, or unparsable `ROUTING_YAML` **fails closed** (Q41): inbound email throws; HTTP compose/selftest returns **503**. `/health` stays up and reports `routing_ok: false`. The Worker does **not** import or fall back to the example file — not even behind a flag.  
 
-Local DX only: set `ALLOW_EXAMPLE_ROUTING=1` (var) to opt into the bundled example — never enable on production deploys.
+Local DX: copy the example into `.dev.vars` / a local secret as `ROUTING_YAML` (same path as production).
 
 ## Shape
 

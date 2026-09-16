@@ -40,7 +40,7 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q38 | Send-proxy CF auth | Same CF Authentication-Results fail-closed gate as reply hop (`cfAuthLooksPass`); spoofed MIME `From` alone must not enter send-proxy SMTP → default forward + `cf_auth_failed` |
 | Q39 | CF auth alignment | `cfAuthLooksPass` requires Cloudflare authserv + method=pass **and** domain alignment to the authorized identity (DKIM `header.d`/`i`, SPF `smtp.mailfrom`, DMARC `header.from`); Gmail narrows to google/gmail domains — never `\|\| hasPass`; client-only AR fails closed |
 | Q40 | Exception identity = envelope | Hop/proxy allowlist + actor + CF auth use **envelope From only** (not MIME From, not envelope∨header). Cross-signal attack (attacker envelope + real AR + spoofed allowlisted From) → default forward |
-| Q41 | ROUTING_YAML required | Non-empty secret is runtime SoT; **no silent fallback** to bundled `routing.example.yaml`. Missing/empty/unparsable → email throws, HTTP non-health → **503**. `/health` stays up with `routing_ok`. Dev-only escape: `ALLOW_EXAMPLE_ROUTING=1` (+ bundled example) — never default on deploy |
+| Q41 | ROUTING_YAML required | Non-empty secret is runtime SoT; **no fallback** and **no Worker import** of `routing.example.yaml` (docs/copy-paste only). Missing/empty/unparsable → email throws, HTTP non-health → **503**. `/health` stays up with `routing_ok`. Local DX: put YAML in `.dev.vars` / secret as `ROUTING_YAML` |
 
 
 ## Not open
@@ -59,4 +59,4 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - Dual-delivery on successful hop/proxy exception  
 - Merging dedupe keys across `alice@` vs `alice+tag@`  
 - Publishing person / vanity mailbox bare `r@` or namespace `r.` on Worker-handled apexes  
-- Silent load of bundled `routing.example.yaml` when `ROUTING_YAML` is missing (Q41)  
+- Silent load / Worker import of bundled `routing.example.yaml` when `ROUTING_YAML` is missing (Q41)  

@@ -4,23 +4,7 @@
 
 import { handleInbound } from "./pipeline.js";
 import { handleCompose } from "./compose.js";
-import {
-  allowExampleRouting,
-  hasRoutingYaml,
-  loadConfig,
-} from "./load_config.js";
-import routingYaml from "../config/routing.example.yaml";
-
-function exampleYamlText() {
-  return typeof routingYaml === "string" ? routingYaml : String(routingYaml);
-}
-
-/**
- * @param {object} env
- */
-function configFromEnv(env) {
-  return loadConfig(env, { exampleYamlText: exampleYamlText() });
-}
+import { hasRoutingYaml, loadConfig } from "./load_config.js";
 
 /**
  * @param {object} obj
@@ -45,7 +29,7 @@ export default {
     }
     let config;
     try {
-      config = configFromEnv(env);
+      config = loadConfig(env);
     } catch (err) {
       console.error("ROUTING_YAML / config load failed", err);
       throw err instanceof Error
@@ -59,12 +43,12 @@ export default {
     const url = new URL(request.url);
 
     // Health stays up without a valid routing SoT so probes work; clients must
-    // check routing_ok (secret present + parseable, or explicit example opt-in).
+    // check routing_ok (non-empty parseable ROUTING_YAML).
     if (request.method === "GET" && url.pathname === "/health") {
       let routing_ok = false;
-      if (hasRoutingYaml(env) || allowExampleRouting(env)) {
+      if (hasRoutingYaml(env)) {
         try {
-          configFromEnv(env);
+          loadConfig(env);
           routing_ok = true;
         } catch (err) {
           console.error("health: routing config load failed", err);
@@ -79,7 +63,7 @@ export default {
 
     let config;
     try {
-      config = configFromEnv(env);
+      config = loadConfig(env);
     } catch (err) {
       console.error("config load failed", err);
       const message =
@@ -91,10 +75,4 @@ export default {
   },
 };
 
-// Re-export for unit tests (Node can import load_config without .yaml)
-export {
-  loadConfig,
-  hasRoutingYaml,
-  allowExampleRouting,
-  isRoutingConfigError,
-} from "./load_config.js";
+export { loadConfig, hasRoutingYaml, isRoutingConfigError } from "./load_config.js";

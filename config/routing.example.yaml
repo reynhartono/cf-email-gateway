@@ -1,7 +1,7 @@
 # cf-email-gateway routing config (example)
 # Copy to config/routing.local.yaml (gitignored) and put contents in wrangler
-# secret ROUTING_YAML. The Worker does NOT load this file at runtime unless
-# ALLOW_EXAMPLE_ROUTING=1 (local DX only) — missing secret fails closed.
+# secret ROUTING_YAML (or .dev.vars for local). Docs/copy-paste only — the
+# Worker never imports this file; missing secret fails closed (Q41).
 # Format: YAML 1.2 — comments allowed.
 #
 # Merge order at runtime:

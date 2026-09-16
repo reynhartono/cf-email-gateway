@@ -128,7 +128,7 @@ curl -sS "https://cf-email-gateway.<account>.workers.dev/health"
 # expect: {"ok":true,"service":"cf-email-gateway","routing_ok":true}
 ```
 
-If `routing_ok` is `false`, put the secret and **redeploy**. For local `wrangler dev` only, you may set `ALLOW_EXAMPLE_ROUTING=1` in `.dev.vars` to use the bundled example — never on production.
+If `routing_ok` is `false`, put the secret and **redeploy**. For local `wrangler dev`, put the same YAML in `.dev.vars` as `ROUTING_YAML` (multiline) — there is no bundled-example escape hatch.
 
 ---
 

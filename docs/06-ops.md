@@ -25,8 +25,8 @@ Redeploy. Dashboard plain Text env is wiped by `wrangler deploy`.
 
 ## ROUTING_YAML required (Q41)
 
-- Live Worker **must** have non-empty secret `ROUTING_YAML`. There is no silent use of `routing.example.yaml`.
-- `GET /health` returns `routing_ok: true` only when config loads (secret present + parseable, or explicit `ALLOW_EXAMPLE_ROUTING` for local dev).
+- Live Worker **must** have non-empty secret `ROUTING_YAML`. Example YAML is never imported into the Worker bundle.
+- `GET /health` returns `routing_ok: true` only when `ROUTING_YAML` is present and parseable.
 - `routing_ok: false` → put secret + redeploy before expecting mail/compose to work.
 - Empty secret / wipe / first boot without `secret put` → inbound throws; compose/selftest **503**.
 
