@@ -312,15 +312,45 @@ describe("util", () => {
     );
   });
 
-  it("normalizeLocalForRouting strips person plus-tags; keeps r+/proxy", () => {
+  it("normalizeLocalForRouting strips person + proxy-shaped on rule_match; keeps r+", () => {
     assert.equal(normalizeLocalForRouting("alice+promo"), "alice");
     assert.equal(normalizeLocalForRouting("alice.netflix+id1"), "alice.netflix");
     assert.equal(normalizeLocalForRouting("alicenetflix"), "alicenetflix");
     assert.equal(normalizeLocalForRouting("r+abc123"), "r+abc123");
     assert.equal(normalizeLocalForRouting("r+abc123.p1"), "r+abc123.p1");
+    // Default / rule_match: strip send-proxy-shaped local to person base
+    assert.equal(normalizeLocalForRouting("alice+bob=gmail.com"), "alice");
     assert.equal(
-      normalizeLocalForRouting("alice+bob=gmail.com"),
+      normalizeLocalForRouting("alice+bob=gmail.com", { purpose: "rule_match" }),
+      "alice",
+    );
+    // Display braces (CFEG proxy grammar) drop like parseSendProxyAddress aliasLocal
+    assert.equal(
+      normalizeLocalForRouting("alice{Bob}+bob=gmail.com", {
+        purpose: "rule_match",
+      }),
+      "alice",
+    );
+    assert.equal(
+      normalizeLocalForRouting("alice.shop{My_Shop}+friend=gmail.com", {
+        purpose: "rule_match",
+      }),
+      "alice.shop",
+    );
+    // can_send_as: leave proxy-shaped From unchanged (Q36), braces included
+    assert.equal(
+      normalizeLocalForRouting("alice+bob=gmail.com", { purpose: "can_send_as" }),
       "alice+bob=gmail.com",
+    );
+    assert.equal(
+      normalizeLocalForRouting("alice{Bob}+bob=gmail.com", {
+        purpose: "can_send_as",
+      }),
+      "alice{Bob}+bob=gmail.com",
+    );
+    assert.equal(
+      normalizeLocalForRouting("r+abc123", { purpose: "can_send_as" }),
+      "r+abc123",
     );
   });
 
@@ -381,14 +411,232 @@ describe("util", () => {
       resolveDestinations(c, "alicenetflix@example.com", resolveDriver).ruleId,
       null,
     );
-    // Exception shapes: no strip → do not match bare r@ or stripped alias
+    // Hop skip Option A: r+ local not stripped → no bare r@ person hit
     assert.equal(
       resolveDestinations(c, "r+abc123@example.com", resolveDriver).ruleId,
       null,
     );
+    // Proxy-shaped exception-skip → strip to alice → person bare rule
     assert.equal(
       resolveDestinations(c, "alice+bob=gmail.com@example.com", resolveDriver)
         .ruleId,
+      "alice-bare",
+    );
+    // Braced proxy display on skip → same person base (not alice{Bob})
+    assert.equal(
+      resolveDestinations(
+        c,
+        "alice{Bob}+bob=gmail.com@example.com",
+        resolveDriver,
+      ).ruleId,
+      "alice-bare",
+    );
+    assert.equal(
+      resolveDestinations(
+        c,
+        "alice.shop{My_Shop}+x=gmail.com@example.com",
+        resolveDriver,
+      ).ruleId,
+      "alice-ns",
+    );
+  });
+
+  it("normalizeConfig rejects reserved local r on rules, identities, defaults", () => {
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "r@example.com",
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          compose: { default_from: "r@example.com" },
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          rules: [
+            {
+              id: "bad-r",
+              match: { type: "address", value: "r@example.com" },
+              destinations: [{ email: "me@gmail.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    // address match must ban full reserved set (r and r.*), not bare r only
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          rules: [
+            {
+              id: "bad-r-dot",
+              match: { type: "address", value: "r.github@example.com" },
+              destinations: [{ email: "me@gmail.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "r.github@example.com",
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          rules: [
+            {
+              id: "bad-r-ns",
+              match: {
+                type: "local_part_prefix",
+                value: "r.",
+                domain: "example.com",
+              },
+              destinations: [{ email: "me@gmail.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          identities: [
+            {
+              id: "bad",
+              authorized_from: ["a@gmail.com"],
+              can_send_as: [{ type: "address", value: "r@example.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    // ryan. is not reserved
+    const ok = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "ryan-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "ryan.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "ryan@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(ok.rules[0].id, "ryan-ns");
+  });
+
+  it("resolveDestinations runtime defense skips slipped reserved r rules", () => {
+    // Bypass normalizeConfig validate by building a minimal config object.
+    const c = {
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "slipped-r",
+          skip_default_inbox: true,
+          match: { type: "address", value: "r@example.com" },
+          destinations: [{ email: "r-dest@gmail.com" }],
+        },
+        {
+          id: "slipped-r-github",
+          skip_default_inbox: true,
+          match: { type: "address", value: "r.github@example.com" },
+          destinations: [{ email: "r-github-dest@gmail.com" }],
+        },
+        {
+          id: "slipped-r-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "r.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "r-ns@gmail.com" }],
+        },
+      ],
+      defaults: { provider: "smtp", send_as: { enabled: false } },
+    };
+    assert.equal(
+      resolveDestinations(c, "r@example.com", resolveDriver).ruleId,
+      null,
+    );
+    assert.equal(
+      resolveDestinations(c, "r.github@example.com", resolveDriver).ruleId,
+      null,
+    );
+    assert.deepEqual(
+      resolveDestinations(c, "r@example.com", resolveDriver).destinations.map(
+        (d) => d.email,
+      ),
+      ["me@gmail.com"],
+    );
+    assert.deepEqual(
+      resolveDestinations(c, "r.github@example.com", resolveDriver).destinations.map(
+        (d) => d.email,
+      ),
+      ["me@gmail.com"],
+    );
+  });
+
+  it("resolveDestinations: invalid reply-ish locals strip to r then reserved defense (no bare r@ person hit)", () => {
+    // Near-miss r+ grammar (fails isReplyTokenLocal) → stripPersonPlusTag → "r"
+    // → isReservedPersonLocal blocks person match. Document so nobody "fixes"
+    // this into inventing bare r@ hits.
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "should-never-match",
+          skip_default_inbox: true,
+          match: { type: "address", value: "alice@example.com" },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    for (const to of [
+      "r+TOK-bad@example.com",
+      "r+abc!@example.com",
+      "r+not.a.valid.suffix@example.com",
+    ]) {
+      const r = resolveDestinations(c, to, resolveDriver);
+      assert.equal(r.ruleId, null, to);
+      assert.deepEqual(
+        r.destinations.map((d) => d.email),
+        ["me@gmail.com"],
+        to,
+      );
+    }
+    // Valid r+ still Option A (no strip) — also no person rule
+    assert.equal(
+      resolveDestinations(c, "r+abc123@example.com", resolveDriver).ruleId,
       null,
     );
   });

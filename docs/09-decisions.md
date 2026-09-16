@@ -34,8 +34,9 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q32 | Pattern shapes | `r+` / send-proxy To shapes are advisory; incomplete gates → stay on default forward (no outer reject blackhole) |
 | Q33 | Insert-first | D1 (+ archive) before special-route authz; every message leaves a row when insert succeeds |
 | Q34 | Exception entry | Hop/proxy only when **all** gates pass (auth + identity + can_send_as + token/resolve); Alice≠Bob alias → default forward |
-| Q35 | Inbound subaddress | Strip `+tag` for **rule match** only (`alice+promo` → `alice`); raw To in D1/logs; no strip on r+/send-proxy grammar |
-| Q36 | can_send_as + tags | Same normalize on outbound From / hop mailbox; unrestricted unchanged; dedupe still raw To |
+| Q35 | Inbound subaddress | Strip `+tag` for **rule match** on person tags **and** send-proxy-shaped locals after exception-skip (`alice+bob=gmail.com` → `alice`; CFEG `{display}` dropped like proxy parse: `alice{Name}+…` → `alice`); **never strip `r+…`** (Option A); raw To in D1/logs |
+| Q36 | can_send_as + tags | Person-tag strip on outbound From / hop mailbox; **do not** strip send-proxy-shaped From; unrestricted unchanged; dedupe still raw To |
+| Q37 | Reserved local `r` | Bare `r@` **and** address `r.…@` / prefix `r.` forbidden on rules, `identities.can_send_as`, `default_inbox`, `compose.default_from` (aligned with `isReservedPersonLocal`); runtime defense if config slips |
 
 
 ## Not open
@@ -50,5 +51,7 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - First-class `local_part_plus` / plus-tag **published multi-person** alias matchers (inbound tag strip on stable bare/prefix is Q35)  
 - Cross-identity token hop when identities are configured  
 - Authz-before-insert / exclusive early-return on r+ or proxy parse (blackholes accidental `+user=domain` To)  
-- Stripping r+/send-proxy locals before rule match (would invent bare `r@` / wrong alias on exception skip)  
-- Merging dedupe keys across `alice@` vs `alice+tag@` 
+- Stripping **reply-token** (`r+…`) locals on hop skip (Option A — would invent bare `r@`)  
+- Dual-delivery on successful hop/proxy exception  
+- Merging dedupe keys across `alice@` vs `alice+tag@`  
+- Publishing person / vanity mailbox bare `r@` or namespace `r.` on Worker-handled apexes  

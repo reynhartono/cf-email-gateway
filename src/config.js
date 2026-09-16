@@ -4,6 +4,11 @@
 
 import YAML from "yaml";
 import { normalizeIdentities } from "./identity.js";
+import {
+  isReservedPersonLocal,
+  matchClaimsReservedLocal,
+  splitEnvelopeTo,
+} from "./util.js";
 
 /** Feature gates (product surface) */
 export const FEATURES = {
@@ -26,6 +31,55 @@ export function parseRoutingYaml(text) {
     throw new Error(`routing config: unsupported version ${raw.version}`);
   }
   return normalizeConfig(raw);
+}
+
+/**
+ * Local `r` is reserved for reply-token grammar (`r+TOKEN@`).
+ * Ban bare `r@…` and prefix `r.` on rules, identities, and sensitive defaults.
+ * @param {string | undefined} email
+ * @param {string} where
+ */
+function assertEmailNotReservedLocal(email, where) {
+  if (email == null || email === "") return;
+  const { local } = splitEnvelopeTo(String(email).trim().toLowerCase());
+  if (isReservedPersonLocal(local)) {
+    throw new Error(
+      `routing config: reserved local "r" forbidden in ${where}: ${email}`,
+    );
+  }
+}
+
+/**
+ * @param {{ type?: string, value?: string, domain?: string }} match
+ * @param {string} where
+ */
+function assertMatchNotReserved(match, where) {
+  if (!match || typeof match !== "object") return;
+  if (matchClaimsReservedLocal(match)) {
+    throw new Error(
+      `routing config: reserved local "r" / prefix "r." forbidden in ${where}`,
+    );
+  }
+}
+
+/**
+ * @param {import('./config.js').RoutingConfig} config
+ */
+function assertNoReservedPersonLocal(config) {
+  assertEmailNotReservedLocal(config.default_inbox, "default_inbox");
+  assertEmailNotReservedLocal(config.compose?.default_from, "compose.default_from");
+
+  for (const rule of config.rules || []) {
+    const id = rule?.id != null ? String(rule.id) : "(unnamed)";
+    assertMatchNotReserved(rule?.match, `rules[${id}].match`);
+  }
+
+  for (const identity of config.identities || []) {
+    const id = identity?.id != null ? String(identity.id) : "(unnamed)";
+    for (const m of identity.can_send_as || []) {
+      assertMatchNotReserved(m, `identities[${id}].can_send_as`);
+    }
+  }
 }
 
 /**
@@ -74,7 +128,7 @@ export function normalizeConfig(raw) {
     }
   }
 
-  return {
+  const config = {
     version: 1,
     default_inbox: raw.default_inbox ?? undefined,
     archive: { enabled: archiveEnabled },
@@ -99,6 +153,8 @@ export function normalizeConfig(raw) {
     domains,
     rules: Array.isArray(raw.rules) ? raw.rules : [],
   };
+  assertNoReservedPersonLocal(config);
+  return config;
 }
 
 export function archiveEnabled(config, rule) {

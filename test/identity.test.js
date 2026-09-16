@@ -75,6 +75,24 @@ describe("identity ACL", () => {
     );
     assert.equal(identityMaySendAs(alice, "alicenetflix@example.com"), false);
     assert.equal(identityMaySendAs(alice, "bob+x@example.com"), false);
+    // Q36: proxy-shaped From is not stripped to bare alice for can_send_as
+    assert.equal(
+      identityMaySendAs(alice, "alice+bob=gmail.com@example.com"),
+      false,
+    );
+  });
+
+  it("identityMaySendAs runtime defense denies reserved r even if can_send_as slipped", () => {
+    const slipped = {
+      id: "slipped",
+      unrestricted: false,
+      can_send_as: [
+        { type: "address", value: "r@example.com" },
+        { type: "local_part_prefix", value: "r.", domain: "example.com" },
+      ],
+    };
+    assert.equal(identityMaySendAs(slipped, "r@example.com"), false);
+    assert.equal(identityMaySendAs(slipped, "r.github@example.com"), false);
   });
 
   it("identityMaySendAs rejects glue-local bleed (alicenetflix) and bare-prefix misconfig", () => {

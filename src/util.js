@@ -91,7 +91,7 @@ export function splitEnvelopeTo(toLower) {
  * Reply-token local grammar (mirrors parseReplyTokenAddress) — keep in sync.
  * @param {string} local
  */
-function isReplyTokenLocal(local) {
+export function isReplyTokenLocal(local) {
   return /^r\+([a-z0-9]+)(?:\.(all|p\d+))?$/i.test(String(local || ""));
 }
 
@@ -100,31 +100,103 @@ function isReplyTokenLocal(local) {
  * Requires + and = (person tags like alice+promo have no =).
  * @param {string} local
  */
-function isSendProxyLocal(local) {
+export function isSendProxyLocal(local) {
   const s = String(local || "");
   if (!s.includes("+") || !s.includes("=")) return false;
   return /^([^+{]+)(?:\{([^}]*)\})?\+([^=,{]+)(?:\{([^}]*)\})?=([^@]+)$/i.test(s);
 }
 
 /**
- * RFC 5233-style plus-tag strip for **rule / can_send_as match only**.
- * Does not rewrite envelope To stored in D1 / logs / archive.
- *
- * - Person tags: `alice+promo` → `alice`; `alice.netflix+id` → `alice.netflix`
- * - Never glue-concat (no `alicepromo`)
- * - Leave r+TOKEN and send-proxy (`alias+user=domain`) locals unchanged so
- *   exception-skip fallback does not match a fictional bare `r@` / stripped alias
- *
- * @param {string} local already-lowercased local-part
+ * Strip person-style plus-tag before the first `+` only (never glue-concat).
+ * `alice+promo` → `alice`; `alice+bob=gmail.com` → `alice`.
+ * Does **not** strip CFEG send-proxy `{display}` braces — use
+ * `stripSendProxyAliasForRuleMatch` for proxy-shaped locals.
+ * @param {string} local
  * @returns {string}
  */
-export function normalizeLocalForRouting(local) {
+export function stripPersonPlusTag(local) {
   const s = String(local || "");
   if (!s) return s;
-  if (isReplyTokenLocal(s) || isSendProxyLocal(s)) return s;
   const plus = s.indexOf("+");
   if (plus >= 0) return s.slice(0, plus);
   return s;
+}
+
+/**
+ * Person-base local for **rule_match** on send-proxy-shaped To (exception skip).
+ * Mirrors `parseSendProxyAddress` alias capture: drop optional `{display}` after
+ * the alias so `alice{Bob}+user=domain` → `alice` (same as successful proxy
+ * `aliasLocal`), not `alice{Bob}`.
+ * @param {string} local
+ * @returns {string}
+ */
+export function stripSendProxyAliasForRuleMatch(local) {
+  const s = String(local || "");
+  if (!s) return s;
+  // Keep in sync with parseSendProxyAddress / isSendProxyLocal.
+  const m = s.match(
+    /^([^+{]+)(?:\{([^}]*)\})?\+([^=,{]+)(?:\{([^}]*)\})?=([^@]+)$/i,
+  );
+  if (m && m[1]) return m[1].trim().toLowerCase();
+  // Fallback: before first + only (no brace-aware parse).
+  return stripPersonPlusTag(s);
+}
+
+/**
+ * Reserved person local for reply-token grammar (`r+TOKEN@`).
+ * Bare `r` and namespace prefix `r.` must never be person mailboxes.
+ * @param {string} local routing-normalized or raw local-part
+ */
+export function isReservedPersonLocal(local) {
+  const s = String(local || "").toLowerCase();
+  return s === "r" || s.startsWith("r.");
+}
+
+/**
+ * Whether a rule / can_send_as match claims reserved local `r` / prefix `r.`.
+ * @param {{ type?: string, value?: string, domain?: string }} match
+ */
+export function matchClaimsReservedLocal(match) {
+  if (!match || typeof match !== "object") return false;
+  const type = String(match.type || "");
+  if (type === "address") {
+    const { local } = splitEnvelopeTo(String(match.value || "").toLowerCase());
+    // Same set as isReservedPersonLocal / assertEmailNotReservedLocal (Q37):
+    // bare `r` and any `r.*` address — not only bare `r@`.
+    return isReservedPersonLocal(local);
+  }
+  if (type === "local_part_prefix") {
+    const prefix = String(match.value || "").toLowerCase();
+    // Exact reserved namespace only — `ryan.` is not reserved.
+    return prefix === "r." || prefix === "r";
+  }
+  return false;
+}
+
+/**
+ * RFC 5233-style plus-tag strip for **match only**.
+ * Does not rewrite envelope To stored in D1 / logs / archive.
+ *
+ * @param {string} local already-lowercased local-part
+ * @param {{ purpose?: 'rule_match' | 'can_send_as' }} [opts]
+ *   - `rule_match` (default, inbound resolveDestinations): strip person tags **and**
+ *     send-proxy-shaped locals (`alice+bob=gmail.com` → `alice`;
+ *     `alice{Name}+bob=gmail.com` → `alice`) so exception-skip default forward
+ *     still hits person bare/prefix rules. **Never** strip `r+…` (Option A).
+ *   - `can_send_as` (outbound identity ACL): strip person tags only; leave r+ and
+ *     send-proxy-shaped From locals unchanged (Q36).
+ * @returns {string}
+ */
+export function normalizeLocalForRouting(local, opts = {}) {
+  const s = String(local || "");
+  if (!s) return s;
+  // Option A: reply-token locals never strip on any purpose.
+  if (isReplyTokenLocal(s)) return s;
+  if (isSendProxyLocal(s)) {
+    if (opts.purpose === "can_send_as") return s;
+    return stripSendProxyAliasForRuleMatch(s);
+  }
+  return stripPersonPlusTag(s);
 }
 
 /**
@@ -133,12 +205,15 @@ export function normalizeLocalForRouting(local) {
  * @param {string} domain
  */
 function matchLocalPartPrefix(match, local, domain) {
+  if (matchClaimsReservedLocal(match)) return false;
   const prefix = String(match.value || "").toLowerCase();
   // Namespace lock: require trailing "." so "yumi" cannot claim "yuminetflix".
   // Bare vanity is match.type=address only (yumi@apex).
   if (!prefix || !prefix.endsWith(".")) return false;
   const wantDomain = String(match.domain || "").toLowerCase();
   if (!wantDomain || domain !== wantDomain) return false;
+  // Defense: never treat routing local `r` / `r.*` as a normal person hit.
+  if (isReservedPersonLocal(local)) return false;
   return local.startsWith(prefix);
 }
 
@@ -162,13 +237,17 @@ export function resolveDestinations(config, envelopeTo, resolveDriver) {
   const to = (envelopeTo || "").toLowerCase();
   const rules = config.rules || [];
   const { local, domain } = splitEnvelopeTo(to);
-  const routingLocal = normalizeLocalForRouting(local);
+  const routingLocal = normalizeLocalForRouting(local, { purpose: "rule_match" });
   const routingTo =
     routingLocal && domain ? `${routingLocal}@${domain}` : to;
 
   for (const rule of rules) {
     const m = rule.match || {};
-    if (m.type === "address" && (m.value || "").toLowerCase() === routingTo) {
+    if (m.type !== "address") continue;
+    // Config validate bans these; runtime skip if invalid config slipped through.
+    if (matchClaimsReservedLocal(m)) continue;
+    if (isReservedPersonLocal(routingLocal)) continue;
+    if ((m.value || "").toLowerCase() === routingTo) {
       return finalize(config, envelopeTo, rule, rule.destinations, resolveDriver);
     }
   }

@@ -140,6 +140,54 @@ describe("send proxy pipeline", () => {
     assert.equal(DB._inbound.size, 1);
   });
 
+  it("unauth person-alias proxy strip lands on person rule (not only default_inbox), no SMTP", async () => {
+    // Full inbound path: exception_skipped → rule_match strip alice+bob=… → alice bare.
+    const DB = createMemoryDb();
+    const config = normalizeConfig({
+      version: 1,
+      archive: { enabled: false },
+      token_auth: { authorized_from: ["me@gmail.com"] },
+      default_inbox: "me@gmail.com",
+      domains: { "example.com": { send_as: { enabled: true } } },
+      rules: [
+        {
+          id: "alice-bare",
+          skip_default_inbox: true,
+          match: { type: "address", value: "alice@example.com" },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    const raw =
+      "From: evil@gmail.com\r\nTo: alice+bob=gmail.com@example.com\r\nSubject: x\r\nMessage-ID: <pxy-alice-person@t>\r\n\r\ny";
+    const msg = fakeMessage({
+      from: "evil@gmail.com",
+      to: "alice+bob=gmail.com@example.com",
+      raw,
+    });
+    const delivered = [];
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        delivered.push(t.destination);
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(smtpCalled, false);
+    assert.deepEqual(delivered, ["alice@gmail.com"]);
+    assert.equal(DB._inbound.size, 1);
+    const inbound = [...DB._inbound.values()][0];
+    assert.equal(inbound.rule_id, "alice-bare");
+    assert.equal(inbound.envelope_to, "alice+bob=gmail.com@example.com");
+  });
+
   it("stays on default forward when proxy alias outside can_send_as (Alice≠Bob)", async () => {
     const DB = createMemoryDb();
     const config = normalizeConfig({
