@@ -5,7 +5,10 @@ import {
   generateToken,
   extractExternalParticipants,
   cfAuthLooksPass,
+  domainsAlignForAuth,
+  parseAuthenticationResults,
 } from "../src/reply_tokens.js";
+import { getAllHeaders, getHeader } from "../src/util.js";
 
 describe("reply_tokens", () => {
   it("parse r+ forms", () => {
@@ -118,10 +121,106 @@ describe("reply_tokens", () => {
   });
 
 
-  it("cfAuthLooksPass", () => {
-    const raw =
-      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com; spf=pass\r\nFrom: a@gmail.com\r\n\r\nx";
-    assert.equal(cfAuthLooksPass(raw, "a@gmail.com"), true);
+  it("cfAuthLooksPass requires aligned pass (issue #7)", () => {
+    // Aligned Gmail DKIM + SPF on CF authserv
+    const alignedGmail =
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com; spf=pass smtp.mailfrom=a@gmail.com\r\nFrom: a@gmail.com\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(alignedGmail, "a@gmail.com"), true);
+
+    // Missing AR
     assert.equal(cfAuthLooksPass("From: a@gmail.com\r\n\r\nx", "a@gmail.com"), false);
+
+    // Unaligned: dkim=pass for unrelated domain must not authorize gmail From
+    const unaligned =
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=evil.example header.i=@evil.example\r\nFrom: a@gmail.com\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(unaligned, "a@gmail.com"), false);
+
+    // Bare dkim=pass with no domain props — fail closed
+    const barePass =
+      "Authentication-Results: mx.cloudflare.net; dkim=pass\r\nFrom: a@gmail.com\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(barePass, "a@gmail.com"), false);
+
+    // fail/softfail only
+    const failOnly =
+      "Authentication-Results: mx.cloudflare.net; spf=fail smtp.mailfrom=a@gmail.com; dkim=fail header.d=gmail.com\r\nFrom: a@gmail.com\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(failOnly, "a@gmail.com"), false);
+
+    // Non-Gmail aligned dkim
+    const otherAligned =
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example header.i=@corp.example\r\nFrom: bob@corp.example\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(otherAligned, "bob@corp.example"), true);
+
+    // Non-Gmail with pass for wrong domain
+    const otherUnaligned =
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=other.example\r\nFrom: bob@corp.example\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(otherUnaligned, "bob@corp.example"), false);
+
+    // DMARC aligned pass
+    const dmarc =
+      "Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=corp.example\r\nFrom: bob@corp.example\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(dmarc, "bob@corp.example"), true);
+
+    // SPF aligned via smtp.mailfrom addr-spec
+    const spf =
+      "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=bob@corp.example\r\nFrom: bob@corp.example\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(spf, "bob@corp.example"), true);
+
+    // Gmail From + google.com signing domain
+    const googleSign =
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=google.com header.i=@google.com\r\nFrom: a@gmail.com\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(googleSign, "a@gmail.com"), true);
+
+    // Prefer CF AR when both client spoof and CF present: CF fails → false
+    // (do not accept client-aligned pass when CF authserv exists and does not pass)
+    const spoofPlusCfFail = [
+      "Authentication-Results: attacker.invalid; dkim=pass header.d=gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com; spf=fail smtp.mailfrom=a@gmail.com",
+      "From: a@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(spoofPlusCfFail, "a@gmail.com"), false);
+
+    // Prefer CF AR when CF aligned pass (client noise ignored for selection)
+    const spoofPlusCfPass = [
+      "Authentication-Results: attacker.invalid; dkim=pass header.d=evil.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "From: a@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(spoofPlusCfPass, "a@gmail.com"), true);
+
+    // ARC-Authentication-Results aligned
+    const arc =
+      "ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=corp.example\r\nFrom: bob@corp.example\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(arc, "bob@corp.example"), true);
+  });
+
+  it("domainsAlignForAuth and parseAuthenticationResults helpers", () => {
+    assert.equal(domainsAlignForAuth("gmail.com", "gmail.com"), true);
+    assert.equal(domainsAlignForAuth("gmail.com", "googlemail.com"), true);
+    assert.equal(domainsAlignForAuth("gmail.com", "google.com"), true);
+    assert.equal(domainsAlignForAuth("corp.example", "mail.corp.example"), true);
+    assert.equal(domainsAlignForAuth("corp.example", "evil.example"), false);
+
+    const parsed = parseAuthenticationResults(
+      "mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com; spf=pass smtp.mailfrom=a@gmail.com",
+    );
+    assert.equal(parsed.authservId, "mx.cloudflare.net");
+    assert.equal(parsed.methods.length, 2);
+    assert.equal(parsed.methods[0].method, "dkim");
+    assert.equal(parsed.methods[0].result, "pass");
+    assert.equal(parsed.methods[0].props["header.d"], "gmail.com");
+  });
+
+  it("getAllHeaders returns every occurrence", () => {
+    const raw =
+      "Authentication-Results: first.example; dkim=pass\r\nAuthentication-Results: second.example; spf=pass\r\nFrom: a@b.com\r\n\r\nx";
+    assert.deepEqual(getAllHeaders(raw, "authentication-results"), [
+      "first.example; dkim=pass",
+      "second.example; spf=pass",
+    ]);
+    assert.equal(getHeader(raw, "authentication-results"), "second.example; spf=pass");
   });
 });

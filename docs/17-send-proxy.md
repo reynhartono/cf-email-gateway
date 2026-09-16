@@ -36,7 +36,7 @@ Inside `{…}` use `_` = space (`__` = literal `_`).
 ## Auth
 
 - Sender ∈ `token_auth.authorized_from` / identities (else **default forward**, not open relay).  
-- **CF Authentication-Results pass** (same fail-closed gate as reply hop via `cfAuthLooksPass`). MIME `From` alone is spoofable — without a CF auth pass the Worker stays on **default `cf_forward`** and logs `send_proxy.exception_skipped` with reason `cf_auth_failed`.  
+- **CF Authentication-Results aligned pass** (same fail-closed gate as reply hop via `cfAuthLooksPass` — method=pass **and** domain alignment to the authorized From; prefer Cloudflare authserv). MIME `From` alone is spoofable — without an aligned CF auth pass the Worker stays on **default `cf_forward`** and logs `send_proxy.exception_skipped` with reason `cf_auth_failed`.  
 - When identities are set, `alias@domain` must be in that identity’s `can_send_as` (else fail-closed ACL).  
 - `alias@domain` needs `domains.<domain>.send_as.enabled` + ESP-verified domain.  
 - Authorized success path is **proxy-only** (no dual-delivery to default_inbox).

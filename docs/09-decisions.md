@@ -38,6 +38,7 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q36 | can_send_as + tags | Person-tag strip on outbound From / hop mailbox; **do not** strip send-proxy-shaped From; unrestricted unchanged; dedupe still raw To |
 | Q37 | Reserved local `r` | Bare `r@` **and** address `r.…@` / prefix `r.` forbidden on rules, `identities.can_send_as`, `default_inbox`, `compose.default_from` (aligned with `isReservedPersonLocal`); runtime defense if config slips |
 | Q38 | Send-proxy CF auth | Same CF Authentication-Results fail-closed gate as reply hop (`cfAuthLooksPass`); spoofed MIME `From` alone must not enter send-proxy SMTP → default forward + `cf_auth_failed` |
+| Q39 | CF auth alignment | `cfAuthLooksPass` requires method=pass **and** domain alignment to the authorized From (DKIM `header.d`/`i`, SPF `smtp.mailfrom`, DMARC `header.from`); prefer Cloudflare authserv-id when present; Gmail branch narrows to google/gmail domains — never `\|\| hasPass` |
 
 
 ## Not open
