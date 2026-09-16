@@ -33,6 +33,19 @@ shops{My_Shop}+alice=gmail.com@example.com
 
 Inside `{…}` use `_` = space (`__` = literal `_`).
 
+### Default display without braces (Q42)
+
+When braces are **omitted**, the Worker may still set a From display name from top-level config:
+
+```yaml
+aliases:
+  shops@example.com:
+    display_name: Shop Support
+```
+
+Then `shops+alice=gmail.com@example.com` → `From: "Shop Support" <shops@example.com>`.  
+Explicit `{…}` braces always override the config map. Lookup uses the resolved outbound From after `resolveMailFrom` (domain remap), then the pre-remap alias address. The same map applies to **reply hop** From for that mailbox.
+
 ## Auth
 
 - **Envelope From** ∈ `token_auth.authorized_from` / identities (else **default forward**, not open relay). MIME `From` is **not** used for send-proxy allowlist.  

@@ -5,6 +5,60 @@
 import { recipientDomain } from "./config.js";
 
 /**
+ * Bare mailbox address for aliases lookup (strip optional "Name" <addr>).
+ * @param {string} email
+ * @returns {string}
+ */
+export function bareMailboxAddress(email) {
+  let s = String(email || "").trim();
+  const angle = s.match(/<([^>]+@[^>]+)>/);
+  if (angle) s = angle[1].trim();
+  return s.toLowerCase();
+}
+
+/**
+ * Configured From display name for an alias (Q42).
+ * Lookup order: exact mailFrom, then any extra candidate addresses (e.g. pre-remap).
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} email
+ * @param {string[]} [alsoTry]
+ * @returns {string | undefined}
+ */
+export function resolveAliasDisplayName(config, email, alsoTry = []) {
+  const aliases = config?.aliases;
+  if (!aliases || typeof aliases !== "object") return undefined;
+  const keys = [email, ...alsoTry]
+    .map((e) => bareMailboxAddress(e))
+    .filter(Boolean);
+  const seen = new Set();
+  for (const k of keys) {
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const entry = aliases[k];
+    const name =
+      entry && typeof entry === "object"
+        ? String(entry.display_name || "").trim()
+        : "";
+    if (name) return name;
+  }
+  return undefined;
+}
+
+/**
+ * Prefer explicit display, else configured alias display (Q42).
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string | undefined | null} explicit
+ * @param {string} mailFrom
+ * @param {string[]} [alsoTry]
+ * @returns {string | undefined}
+ */
+export function pickFromDisplayName(config, explicit, mailFrom, alsoTry = []) {
+  const e = explicit != null ? String(explicit).trim() : "";
+  if (e) return e;
+  return resolveAliasDisplayName(config, mailFrom, alsoTry);
+}
+
+/**
  * @param {import('./config.js').RoutingConfig} config
  * @param {string} domain
  */

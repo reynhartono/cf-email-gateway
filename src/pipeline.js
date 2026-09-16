@@ -26,7 +26,7 @@ import * as db from "./db.js";
 import { putArchive } from "./archive.js";
 import { cfForward } from "./providers/cf_forward.js";
 import { sendOutboundMime } from "./providers/send_outbound.js";
-import { resolveMailFrom } from "./mail_from.js";
+import { pickFromDisplayName, resolveMailFrom } from "./mail_from.js";
 import {
   parseSendProxyAddress,
   isAuthorizedSender,
@@ -627,8 +627,15 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
   const toField = proxy.rcptDisplay
     ? formatSmtpMailbox(proxy.rcptDisplay, proxy.rcptEmail)
     : proxy.rcptEmail;
-  const fromField = proxy.aliasDisplay
-    ? formatSmtpMailbox(proxy.aliasDisplay, resolved.mailFrom)
+  // Q42: braces win; else aliases.<mailFrom>.display_name
+  const fromDisplay = pickFromDisplayName(
+    config,
+    proxy.aliasDisplay,
+    resolved.mailFrom,
+    [proxy.fromEmail],
+  );
+  const fromField = fromDisplay
+    ? formatSmtpMailbox(fromDisplay, resolved.mailFrom)
     : resolved.mailFrom;
   const mimeOut = rebuildOutboundMime({
     rawText,
@@ -643,7 +650,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     const started = Date.now();
     const result = await sendFn(env, {
       mailFrom: resolved.mailFrom,
-      fromName: proxy.aliasDisplay,
+      fromName: fromDisplay,
       to: proxy.rcptEmail,
       mimeText: mimeOut,
     });
@@ -1010,7 +1017,11 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
       (d) => d.email.toLowerCase() === t.destination.toLowerCase(),
     );
     const toField = formatSmtpMailbox(part?.display_hint || "", t.destination);
-    const fromField = formatSmtpMailbox(mailbox, mailFrom);
+    // Q42: configured alias display for our_mailbox / resolved From
+    const fromDisplay = pickFromDisplayName(config, null, mailFrom, [mailbox]);
+    const fromField = fromDisplay
+      ? formatSmtpMailbox(fromDisplay, mailFrom)
+      : formatSmtpMailbox(mailbox, mailFrom);
     // Body 1:1 — rebuild headers only, keep multipart/HTML/QP untouched
     const mimeOut = rebuildOutboundMime({
       rawText,
@@ -1021,7 +1032,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     });
     const result = await sendFn(env, {
       mailFrom,
-      fromName: mailbox,
+      fromName: fromDisplay || mailbox,
       to: t.destination,
       mimeText: mimeOut,
     });

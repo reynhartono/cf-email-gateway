@@ -98,6 +98,62 @@ function normalizeSendAs(sa) {
 }
 
 /**
+ * Optional From display names keyed by full alias address (Q42).
+ * Accepts map of address → string | { display_name }.
+ * @param {unknown} raw
+ * @returns {Record<string, { display_name: string }>}
+ */
+export function normalizeAliases(raw) {
+  if (raw == null) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("routing config: aliases must be a mapping of address → display_name");
+  }
+  /** @type {Record<string, { display_name: string }>} */
+  const out = {};
+  for (const [key, val] of Object.entries(raw)) {
+    const addr = String(key || "")
+      .trim()
+      .toLowerCase();
+    if (!addr || !addr.includes("@") || addr.includes(" ")) {
+      throw new Error(
+        `routing config: aliases key must be a bare email address: ${JSON.stringify(key)}`,
+      );
+    }
+    const { local } = splitEnvelopeTo(addr);
+    if (isReservedPersonLocal(local)) {
+      throw new Error(
+        `routing config: reserved local "r" forbidden in aliases: ${addr}`,
+      );
+    }
+    let display;
+    if (typeof val === "string") {
+      display = val;
+    } else if (val && typeof val === "object" && !Array.isArray(val)) {
+      display = val.display_name ?? val.displayName ?? val.name;
+    } else {
+      throw new Error(
+        `routing config: aliases[${addr}] must be a string or { display_name }`,
+      );
+    }
+    display = String(display ?? "")
+      .replace(/[\r\n]+/g, " ")
+      .trim();
+    if (!display) {
+      throw new Error(
+        `routing config: aliases[${addr}].display_name must be a non-empty string`,
+      );
+    }
+    if (/[\r\n\x00-\x1f\x7f]/.test(display)) {
+      throw new Error(
+        `routing config: aliases[${addr}].display_name contains control characters`,
+      );
+    }
+    out[addr] = { display_name: display };
+  }
+  return out;
+}
+
+/**
  * @param {object} raw
  */
 export function normalizeConfig(raw) {
@@ -150,6 +206,7 @@ export function normalizeConfig(raw) {
         : [],
     },
     identities: normalizeIdentities(raw),
+    aliases: normalizeAliases(raw.aliases),
     domains,
     rules: Array.isArray(raw.rules) ? raw.rules : [],
   };

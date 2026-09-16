@@ -44,6 +44,14 @@ token_auth:
     - me@gmail.com
   # - other@gmail.com
 
+# Optional default From display names for outbound aliases (Q42).
+# Used on send-proxy when {aliasDisplay} braces are omitted, and on reply hop.
+# Explicit braces always win. Compose HTTP still uses optional from_name.
+# aliases:
+#   shops@example.com:
+#     display_name: Shop Support
+#   me@example.com: Reyn   # string shorthand OK
+
 # Optional multi-person ACL (compose From + reply hop our_mailbox + send-proxy alias).
 # When non-empty: each sender/bearer is bound to can_send_as prefixes.
 # identities:

@@ -26,6 +26,11 @@ defaults:
 token_auth:
   authorized_from:
     - me@gmail.com
+# Optional default From display names (Q42) — send-proxy without braces + reply hop
+# aliases:
+#   shops@example.com:
+#     display_name: Shop Support
+#   me@example.com: Reyn
 domains:
   example.com:
     send_as:
@@ -36,6 +41,26 @@ rules:
     destinations:
       - email: finance@gmail.com
 ```
+
+## aliases (From display name)
+
+Optional map of **full alias address → display name** for outbound MIME `From` when the operator did not supply a per-message name:
+
+```yaml
+aliases:
+  shops@example.com:
+    display_name: Shop Support
+  me@example.com: Reyn   # string shorthand
+```
+
+| Path | Precedence |
+|------|------------|
+| Send-proxy with `{aliasDisplay}` braces | Braces win |
+| Send-proxy without braces | `aliases[<resolved mailFrom>]` (then pre-remap candidates) |
+| Reply hop | `aliases[<mailFrom / our_mailbox>]` |
+| Compose HTTP | Unchanged — optional JSON `from_name` / `fromName` only |
+
+Missing map or missing key → bare address (previous behavior). Keys lowercased at load; reserved person local `r` / `r.*` keys rejected (Q37). Display values cannot be empty or contain header control characters.
 
 ## resolve_driver
 
