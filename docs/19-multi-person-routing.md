@@ -19,7 +19,8 @@ Share one catch-all apex (privacy mail domain) among several people without:
 | Reply / send-proxy | Apex `send_as.enabled`; each sender in `token_auth.authorized_from` |
 | Archive | Still **shared** R2/D1 under the operator — not end-to-end multi-tenant isolation |
 | Avoid as **published** alias | `person+service@` — many validators reject plus-addressing; use dot namespace instead |
-| Inbound tags OK | `alice+promo@` / `alice.netflix+id@` strip to base for **rule match only** (raw To kept in D1) |
+| Inbound tags OK | `alice+promo@` / `alice.netflix+id@` strip to base for **rule match only** (raw To kept in D1); proxy-shaped skip also strips to person base; `r+` never strips |
+| Reserved | Do not publish bare `r@` or namespace `r.` (reply-token grammar) |
 
 ## Addressing conventions
 
@@ -29,6 +30,8 @@ Share one catch-all apex (privacy mail domain) among several people without:
 | Vanity exact | `alice@example.com` | `address` (prefix `alice.` does **not** match bare `alice@`) |
 | Subaddress on bare | `alice+promo@example.com` | same bare `address` after normalize |
 | Subaddress on ns | `alice.netflix+id1@example.com` | same `alice.` prefix after normalize |
+| Proxy-shaped (exception skip) | `alice+bob=gmail.com@example.com` | strip → bare `alice` person rule |
+| Reply-token (hop skip) | `r+TOKEN@example.com` | **no** strip (Option A) |
 | Glue (denied) | `alicenetflix@example.com` | no match on `alice.` |
 
 Prefer stable handles (`alice.`) over single-letter (`a.`) unless the set is tiny and fixed.

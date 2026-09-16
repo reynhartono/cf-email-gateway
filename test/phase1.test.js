@@ -312,15 +312,26 @@ describe("util", () => {
     );
   });
 
-  it("normalizeLocalForRouting strips person plus-tags; keeps r+/proxy", () => {
+  it("normalizeLocalForRouting strips person + proxy-shaped on rule_match; keeps r+", () => {
     assert.equal(normalizeLocalForRouting("alice+promo"), "alice");
     assert.equal(normalizeLocalForRouting("alice.netflix+id1"), "alice.netflix");
     assert.equal(normalizeLocalForRouting("alicenetflix"), "alicenetflix");
     assert.equal(normalizeLocalForRouting("r+abc123"), "r+abc123");
     assert.equal(normalizeLocalForRouting("r+abc123.p1"), "r+abc123.p1");
+    // Default / rule_match: strip send-proxy-shaped local to person base
+    assert.equal(normalizeLocalForRouting("alice+bob=gmail.com"), "alice");
     assert.equal(
-      normalizeLocalForRouting("alice+bob=gmail.com"),
+      normalizeLocalForRouting("alice+bob=gmail.com", { purpose: "rule_match" }),
+      "alice",
+    );
+    // can_send_as: leave proxy-shaped From unchanged (Q36)
+    assert.equal(
+      normalizeLocalForRouting("alice+bob=gmail.com", { purpose: "can_send_as" }),
       "alice+bob=gmail.com",
+    );
+    assert.equal(
+      normalizeLocalForRouting("r+abc123", { purpose: "can_send_as" }),
+      "r+abc123",
     );
   });
 
@@ -381,15 +392,144 @@ describe("util", () => {
       resolveDestinations(c, "alicenetflix@example.com", resolveDriver).ruleId,
       null,
     );
-    // Exception shapes: no strip → do not match bare r@ or stripped alias
+    // Hop skip Option A: r+ local not stripped → no bare r@ person hit
     assert.equal(
       resolveDestinations(c, "r+abc123@example.com", resolveDriver).ruleId,
       null,
     );
+    // Proxy-shaped exception-skip → strip to alice → person bare rule
     assert.equal(
       resolveDestinations(c, "alice+bob=gmail.com@example.com", resolveDriver)
         .ruleId,
+      "alice-bare",
+    );
+  });
+
+  it("normalizeConfig rejects reserved local r on rules, identities, defaults", () => {
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "r@example.com",
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          compose: { default_from: "r@example.com" },
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          rules: [
+            {
+              id: "bad-r",
+              match: { type: "address", value: "r@example.com" },
+              destinations: [{ email: "me@gmail.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          rules: [
+            {
+              id: "bad-r-ns",
+              match: {
+                type: "local_part_prefix",
+                value: "r.",
+                domain: "example.com",
+              },
+              destinations: [{ email: "me@gmail.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          identities: [
+            {
+              id: "bad",
+              authorized_from: ["a@gmail.com"],
+              can_send_as: [{ type: "address", value: "r@example.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    // ryan. is not reserved
+    const ok = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "ryan-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "ryan.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "ryan@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(ok.rules[0].id, "ryan-ns");
+  });
+
+  it("resolveDestinations runtime defense skips slipped reserved r rules", () => {
+    // Bypass normalizeConfig validate by building a minimal config object.
+    const c = {
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "slipped-r",
+          skip_default_inbox: true,
+          match: { type: "address", value: "r@example.com" },
+          destinations: [{ email: "r-dest@gmail.com" }],
+        },
+        {
+          id: "slipped-r-ns",
+          skip_default_inbox: true,
+          match: {
+            type: "local_part_prefix",
+            value: "r.",
+            domain: "example.com",
+          },
+          destinations: [{ email: "r-ns@gmail.com" }],
+        },
+      ],
+      defaults: { provider: "smtp", send_as: { enabled: false } },
+    };
+    assert.equal(
+      resolveDestinations(c, "r@example.com", resolveDriver).ruleId,
       null,
+    );
+    assert.equal(
+      resolveDestinations(c, "r.github@example.com", resolveDriver).ruleId,
+      null,
+    );
+    assert.deepEqual(
+      resolveDestinations(c, "r@example.com", resolveDriver).destinations.map(
+        (d) => d.email,
+      ),
+      ["me@gmail.com"],
     );
   });
 

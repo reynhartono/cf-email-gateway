@@ -86,10 +86,10 @@ Receive prefix and `can_send_as` prefix should match so Alice only sees (and can
 | `alice@example.com` (`type: address`) | `alicenetflix@example.com` (glue local — other user may own) |
 | `alice+promo@example.com` (subaddress → bare) | `alice` prefix **without** trailing `.` (ignored / no match) |
 | `alice.netflix@example.com` (`local_part_prefix` `alice.`) | `bob.…@example.com` |
-| `alice.netflix+id@example.com` (subaddress → ns) | |
-| `alice.anything@example.com` | |
+| `alice.netflix+id@example.com` (subaddress → ns) | `r@example.com` / `r.…@` (reserved local) |
+| `alice.anything@example.com` | proxy-shaped From `alice+user=domain@…` (not stripped for can_send_as) |
 
-`local_part_prefix` in `can_send_as` uses the same trailing-`.` lock **and** the same subaddress normalize as inbound rules.
+`local_part_prefix` in `can_send_as` uses the same trailing-`.` lock and **person-tag** subaddress normalize (`purpose: can_send_as`). Send-proxy-shaped From strings are **not** collapsed to bare alias for ACL.
 
 ## Security notes
 

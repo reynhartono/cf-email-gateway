@@ -60,14 +60,24 @@ Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters 
 
 ### Subaddress (plus-tag) normalize for match
 
-For **rule evaluation only**, the local-part is passed through `normalizeLocalForRouting`:
+For **rule evaluation only**, the local-part is passed through `normalizeLocalForRouting` (`purpose: rule_match`):
 
 - Person tags: `alice+promo@…` → base `alice` (bare `address` hit); `alice.netflix+id1@…` → base `alice.netflix` → still `alice.` prefix.
+- **Send-proxy-shaped** locals on the **default forward** path (including after `send_proxy.exception_skipped`): `alice+bob=gmail.com@…` → base `alice` — same strip-before-first-`+` — so legitimate mail that only *coincidentally* matches proxy grammar still hits person bare/prefix rules.
 - Strip is **before the first `+` only** — never glue-concat toward `alicepromo`.
-- **Do not strip** when the local matches reply-token (`r+TOKEN…`) or send-proxy (`alias+user=domain`) grammar — exception-skip fallback must not rewrite to bare `r@` / stripped alias.
+- **Do not strip** reply-token locals (`r+TOKEN…`) — Option A; hop `exception_skipped` must not invent bare `r@`.
+- Shape detect + hop/proxy gates still use **raw** To. Successful hop/proxy SMTP is unchanged (no dual-delivery).
 - Envelope To in D1 / logs / archive stays the **raw** address. Dedupe keeps raw To (do not merge `alice@` vs `alice+a@`).
 - **Published multi-person aliases** stay `person@` and `person.service@` (dot namespace). Many site validators reject `+` in the *published* alias — that constraint remains; inbound still honors Gmail-style tags on those stable bases.
-- Outbound `identities.can_send_as` uses the **same** normalize on From / hop mailbox.
+- Outbound `identities.can_send_as` uses person-tag strip only (`purpose: can_send_as`) — **does not** treat proxy-shaped From as bare alias.
+
+### Reserved local `r`
+
+The single-label local **`r`** is reserved for reply-token grammar (`r+TOKEN@apex`):
+
+- Config load **rejects** bare `address` `r@…`, prefix `r.` / bare prefix `r`, `default_inbox` / `compose.default_from` of `r@…` / `r.…`, and matching `identities.can_send_as` entries.
+- Runtime defense: rule match and `can_send_as` never honor slipped `r` / `r.` person hits.
+- Operators must not publish person vanity `r@` or namespace `r.` on Worker-handled apexes (`ryan.` is fine).
 
 ### Prefix safety
 
