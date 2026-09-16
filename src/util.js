@@ -109,6 +109,8 @@ export function isSendProxyLocal(local) {
 /**
  * Strip person-style plus-tag before the first `+` only (never glue-concat).
  * `alice+promo` → `alice`; `alice+bob=gmail.com` → `alice`.
+ * Does **not** strip CFEG send-proxy `{display}` braces — use
+ * `stripSendProxyAliasForRuleMatch` for proxy-shaped locals.
  * @param {string} local
  * @returns {string}
  */
@@ -118,6 +120,26 @@ export function stripPersonPlusTag(local) {
   const plus = s.indexOf("+");
   if (plus >= 0) return s.slice(0, plus);
   return s;
+}
+
+/**
+ * Person-base local for **rule_match** on send-proxy-shaped To (exception skip).
+ * Mirrors `parseSendProxyAddress` alias capture: drop optional `{display}` after
+ * the alias so `alice{Bob}+user=domain` → `alice` (same as successful proxy
+ * `aliasLocal`), not `alice{Bob}`.
+ * @param {string} local
+ * @returns {string}
+ */
+export function stripSendProxyAliasForRuleMatch(local) {
+  const s = String(local || "");
+  if (!s) return s;
+  // Keep in sync with parseSendProxyAddress / isSendProxyLocal.
+  const m = s.match(
+    /^([^+{]+)(?:\{([^}]*)\})?\+([^=,{]+)(?:\{([^}]*)\})?=([^@]+)$/i,
+  );
+  if (m && m[1]) return m[1].trim().toLowerCase();
+  // Fallback: before first + only (no brace-aware parse).
+  return stripPersonPlusTag(s);
 }
 
 /**
@@ -156,9 +178,9 @@ export function matchClaimsReservedLocal(match) {
  * @param {string} local already-lowercased local-part
  * @param {{ purpose?: 'rule_match' | 'can_send_as' }} [opts]
  *   - `rule_match` (default, inbound resolveDestinations): strip person tags **and**
- *     send-proxy-shaped locals (`alice+bob=gmail.com` → `alice`) so exception-skip
- *     default forward still hits person bare/prefix rules. **Never** strip `r+…`
- *     (Option A — avoid inventing bare `r@`).
+ *     send-proxy-shaped locals (`alice+bob=gmail.com` → `alice`;
+ *     `alice{Name}+bob=gmail.com` → `alice`) so exception-skip default forward
+ *     still hits person bare/prefix rules. **Never** strip `r+…` (Option A).
  *   - `can_send_as` (outbound identity ACL): strip person tags only; leave r+ and
  *     send-proxy-shaped From locals unchanged (Q36).
  * @returns {string}
@@ -170,7 +192,7 @@ export function normalizeLocalForRouting(local, opts = {}) {
   if (isReplyTokenLocal(s)) return s;
   if (isSendProxyLocal(s)) {
     if (opts.purpose === "can_send_as") return s;
-    return stripPersonPlusTag(s);
+    return stripSendProxyAliasForRuleMatch(s);
   }
   return stripPersonPlusTag(s);
 }

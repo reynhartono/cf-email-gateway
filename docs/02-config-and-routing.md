@@ -63,8 +63,8 @@ Envelope `To` is lowercased. Tiers (higher always wins; YAML order only matters 
 For **rule evaluation only**, the local-part is passed through `normalizeLocalForRouting` (`purpose: rule_match`):
 
 - Person tags: `alice+promo@…` → base `alice` (bare `address` hit); `alice.netflix+id1@…` → base `alice.netflix` → still `alice.` prefix.
-- **Send-proxy-shaped** locals on the **default forward** path (including after `send_proxy.exception_skipped`): `alice+bob=gmail.com@…` → base `alice` — same strip-before-first-`+` — so legitimate mail that only *coincidentally* matches proxy grammar still hits person bare/prefix rules.
-- Strip is **before the first `+` only** — never glue-concat toward `alicepromo`.
+- **Send-proxy-shaped** locals on the **default forward** path (including after `send_proxy.exception_skipped`): `alice+bob=gmail.com@…` → base `alice`; optional CFEG `{display}` after the alias is dropped the same way as `parseSendProxyAddress` (`alice{Bob}+bob=gmail.com@…` → `alice`) so exception-skip still hits person bare/prefix rules.
+- Person tags (non-proxy): strip is **before the first `+` only** — never glue-concat toward `alicepromo`.
 - **Do not strip** reply-token locals (`r+TOKEN…`) — Option A; hop `exception_skipped` must not invent bare `r@`.
 - Shape detect + hop/proxy gates still use **raw** To. Successful hop/proxy SMTP is unchanged (no dual-delivery).
 - Envelope To in D1 / logs / archive stays the **raw** address. Dedupe keeps raw To (do not merge `alice@` vs `alice+a@`).

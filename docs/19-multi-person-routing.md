@@ -31,6 +31,7 @@ Share one catch-all apex (privacy mail domain) among several people without:
 | Subaddress on bare | `alice+promo@example.com` | same bare `address` after normalize |
 | Subaddress on ns | `alice.netflix+id1@example.com` | same `alice.` prefix after normalize |
 | Proxy-shaped (exception skip) | `alice+bob=gmail.com@example.com` | strip → bare `alice` person rule |
+| Proxy-shaped + `{display}` skip | `alice{Bob}+bob=gmail.com@…` | strip → bare `alice` (same as proxy `aliasLocal`) |
 | Reply-token (hop skip) | `r+TOKEN@example.com` | **no** strip (Option A) |
 | Glue (denied) | `alicenetflix@example.com` | no match on `alice.` |
 

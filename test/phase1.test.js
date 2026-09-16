@@ -324,10 +324,29 @@ describe("util", () => {
       normalizeLocalForRouting("alice+bob=gmail.com", { purpose: "rule_match" }),
       "alice",
     );
-    // can_send_as: leave proxy-shaped From unchanged (Q36)
+    // Display braces (CFEG proxy grammar) drop like parseSendProxyAddress aliasLocal
+    assert.equal(
+      normalizeLocalForRouting("alice{Bob}+bob=gmail.com", {
+        purpose: "rule_match",
+      }),
+      "alice",
+    );
+    assert.equal(
+      normalizeLocalForRouting("alice.shop{My_Shop}+friend=gmail.com", {
+        purpose: "rule_match",
+      }),
+      "alice.shop",
+    );
+    // can_send_as: leave proxy-shaped From unchanged (Q36), braces included
     assert.equal(
       normalizeLocalForRouting("alice+bob=gmail.com", { purpose: "can_send_as" }),
       "alice+bob=gmail.com",
+    );
+    assert.equal(
+      normalizeLocalForRouting("alice{Bob}+bob=gmail.com", {
+        purpose: "can_send_as",
+      }),
+      "alice{Bob}+bob=gmail.com",
     );
     assert.equal(
       normalizeLocalForRouting("r+abc123", { purpose: "can_send_as" }),
@@ -402,6 +421,23 @@ describe("util", () => {
       resolveDestinations(c, "alice+bob=gmail.com@example.com", resolveDriver)
         .ruleId,
       "alice-bare",
+    );
+    // Braced proxy display on skip → same person base (not alice{Bob})
+    assert.equal(
+      resolveDestinations(
+        c,
+        "alice{Bob}+bob=gmail.com@example.com",
+        resolveDriver,
+      ).ruleId,
+      "alice-bare",
+    );
+    assert.equal(
+      resolveDestinations(
+        c,
+        "alice.shop{My_Shop}+x=gmail.com@example.com",
+        resolveDriver,
+      ).ruleId,
+      "alice-ns",
     );
   });
 
