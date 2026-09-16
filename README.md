@@ -104,7 +104,7 @@ Background / narrative (blog): [reyn.id — CFEG](https://reyn.id/posts/cf-email
 | **SMTP** (e.g. your ESP) | Compose, reply hop, send-proxy (DATA, 1:1 bodies) |
 | **Secrets** | `ROUTING_YAML`, `SMTP_*`, optional `COMPOSE_API_TOKEN` |
 
-Config is **YAML you control** (example in-repo; live value as a Worker secret). Synthetic fixtures only in git (`example.com` / `me@gmail.com`).
+Config is **YAML you control** (example in-repo for copy-paste; **live value must be Worker secret `ROUTING_YAML`** — no silent example fallback). Synthetic fixtures only in git (`example.com` / `me@gmail.com`).
 
 ---
 
@@ -128,12 +128,13 @@ npm install && npm test
 5. Secrets: `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` (+ optional `SMTP_PORT`, `COMPOSE_API_TOKEN`)
 6. `npx wrangler deploy`
 7. Email Routing catch-all → Worker **`cf-email-gateway`**
-8. Smoke: `GET /health`, authenticated smtp-selftest / compose, then a real inbound
+8. Smoke: `GET /health` must show `"routing_ok":true`, then authenticated smtp-selftest / compose, then a real inbound
 
-**Secret changes require a redeploy.**
+**Secret changes require a redeploy.** Missing `ROUTING_YAML` fails closed (email error / HTTP 503); `/health` stays up with `routing_ok:false`.
 
 ```bash
 curl -sS "https://cf-email-gateway.<account>.workers.dev/health"
+# {"ok":true,"service":"cf-email-gateway","routing_ok":true}
 
 curl -sS -H "Authorization: Bearer $COMPOSE_API_TOKEN" \
   "https://cf-email-gateway.<account>.workers.dev/v1/smtp-selftest?to=me@gmail.com"

@@ -12,4 +12,5 @@
 | **subaddress normalize** | Strip `+tag` from local for **rule match** (`alice+x` → `alice`; proxy-shaped `alice+bob=gmail.com` / `alice{Name}+bob=gmail.com` → `alice` on default forward) and person tags for `can_send_as`; **never** strip `r+TOKEN`; raw envelope To unchanged |
 | **reserved local `r`** | Bare `r@` and prefix `r.` forbidden as person mailboxes — reserved for reply-token grammar `r+TOKEN@` |
 | **B9** | Archive + delivery same run; SUCCESS only if both required paths ok |
-| **ROUTING_YAML** | Wrangler secret holding live routing config |
+| **ROUTING_YAML** | Wrangler secret holding live routing config (required at runtime; no silent example fallback) |
+| **ALLOW_EXAMPLE_ROUTING** | Dev-only env opt-in to load bundled `routing.example.yaml` when secret absent — never for production |
