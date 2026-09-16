@@ -403,9 +403,10 @@ export function parseAuthenticationResults(arValue) {
 }
 
 /**
- * Prefer Cloudflare-added AR headers when present (authserv-id contains cloudflare);
- * otherwise evaluate all AR / ARC-AR headers. Client-supplied AR alone is still
- * checked for alignment — spoofed unaligned pass must fail.
+ * Collect Authentication-Results / ARC-Authentication-Results from the
+ * receiving ADMD only. Cloudflare Email Routing injects an authserv-id
+ * containing "cloudflare"; client-supplied AR alone must not authorize
+ * hop/proxy (fail closed if no CF line is present).
  * @param {string} rawText
  * @returns {string[]}
  */
@@ -413,17 +414,15 @@ function collectAuthResultsHeaders(rawText) {
   const ar = getAllHeaders(rawText, "authentication-results");
   const arc = getAllHeaders(rawText, "arc-authentication-results");
   const all = [...ar, ...arc];
-  if (!all.length) return [];
-  const cf = all.filter((v) => {
+  return all.filter((v) => {
     const id = parseAuthenticationResults(v).authservId;
     return /cloudflare/i.test(id);
   });
-  return cf.length ? cf : all;
 }
 
 /**
- * True when Authentication-Results (prefer CF authserv) shows an **aligned**
- * pass for the mailbox identity we are authorizing.
+ * True when a **Cloudflare** Authentication-Results line shows an **aligned**
+ * pass for the mailbox identity we are authorizing (typically envelope From).
  *
  * Alignment (any one is enough):
  * - dkim=pass with header.d or header.i domain aligned to fromEmail
@@ -433,8 +432,11 @@ function collectAuthResultsHeaders(rawText) {
  * Gmail From: requires google/gmail/googlemail marker on the aligned method
  * (or authserv), never a bare unrelated dkim=pass.
  *
+ * Domain alignment is relaxed (subdomain OK) — a compromised subdomain of an
+ * allowlisted apex can align; operators should treat apex ownership carefully.
+ *
  * @param {string} rawText
- * @param {string} fromEmail identity being authorized (envelope or header From)
+ * @param {string} fromEmail identity being authorized (envelope From on hop/proxy)
  */
 export function cfAuthLooksPass(rawText, fromEmail) {
   const fromDom = canonicalizeAuthDomain(recipientDomain(fromEmail));

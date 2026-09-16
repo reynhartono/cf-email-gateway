@@ -140,6 +140,51 @@ describe("send proxy pipeline", () => {
     assert.equal(smtpCalled, false);
   });
 
+  it("does not send-proxy when attacker envelope has real CF auth but MIME From is allowlisted", async () => {
+    // Cross-signal attack: envelope = attacker (AR aligned to attacker domain),
+    // MIME From = allowlisted me@gmail.com. Old OR-gates would pass allowlist
+    // via header and CF via envelope. Envelope-only authz must deny.
+    const DB = createMemoryDb();
+    const config = normalizeConfig({
+      version: 1,
+      archive: { enabled: false },
+      token_auth: { authorized_from: ["me@gmail.com"] },
+      default_inbox: "me@gmail.com",
+      domains: { "example.com": { send_as: { enabled: true } } },
+    });
+    const raw = [
+      "From: me@gmail.com",
+      "To: shops+victim=gmail.com@example.com",
+      "Subject: phish",
+      "Message-ID: <pxy-cross@t>",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=attacker.example header.i=@attacker.example; spf=pass smtp.mailfrom=evil@attacker.example",
+      "",
+      "steal",
+    ].join("\r\n");
+    const msg = fakeMessage({
+      from: "evil@attacker.example",
+      to: "shops+victim=gmail.com@example.com",
+      raw,
+    });
+    let forwarded = null;
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
+  });
+
   it("does not send-proxy when authorized From lacks CF Authentication-Results", async () => {
     const DB = createMemoryDb();
     const config = normalizeConfig({

@@ -191,7 +191,12 @@ describe("reply_tokens", () => {
     ].join("\r\n");
     assert.equal(cfAuthLooksPass(spoofPlusCfPass, "a@gmail.com"), true);
 
-    // ARC-Authentication-Results aligned
+    // Client-forged AR alone (no Cloudflare authserv) → fail closed
+    const clientOnly =
+      "Authentication-Results: attacker.invalid; dkim=pass header.d=gmail.com header.i=@gmail.com\r\nFrom: a@gmail.com\r\n\r\nx";
+    assert.equal(cfAuthLooksPass(clientOnly, "a@gmail.com"), false);
+
+    // ARC-Authentication-Results aligned (CF authserv after i=N)
     const arc =
       "ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=corp.example\r\nFrom: bob@corp.example\r\n\r\nx";
     assert.equal(cfAuthLooksPass(arc, "bob@corp.example"), true);

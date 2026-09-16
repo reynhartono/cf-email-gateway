@@ -151,11 +151,11 @@ export async function handleInbound(env, message, config, hooks = {}) {
 
   const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allowList = effectiveAuthorizedFrom(config);
-  const senderAuthorized =
-    isAuthorizedSender(envelopeFrom, allowList) ||
-    isAuthorizedSender(headerFrom, allowList);
+  // Exception authz uses envelope From only — MIME From is spoofable and must
+  // not grant hop/proxy by itself (paired with CF auth on the same identity).
+  const senderAuthorized = isAuthorizedSender(envelopeFrom, allowList);
   const actor = senderAuthorized
-    ? resolveInboundActor(config, envelopeFrom, headerFrom)
+    ? resolveInboundActor(config, envelopeFrom)
     : { ok: false };
 
   // Exceptions to the default route (only when pattern ∧ authorized ∧ bound).
@@ -427,13 +427,9 @@ function evaluateProxyException(config, hooks, ctx) {
   if (!senderAuthorized) return { ok: false, reason: "sender_not_authorized" };
   if (!actor.ok) return { ok: false, reason: "identity_unbound" };
 
-  // Same CF Authentication-Results gate as reply-hop: MIME From alone is spoofable.
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  if (
-    !hooks.skipCfAuth &&
-    !cfAuthLooksPass(rawText, headerFrom) &&
-    !cfAuthLooksPass(rawText, envelopeFrom)
-  ) {
+  // CF auth must align to the allowlisted envelope identity — not MIME From
+  // and not "either address" (attacker envelope + spoofed allowlisted From).
+  if (!hooks.skipCfAuth && !cfAuthLooksPass(rawText, envelopeFrom)) {
     return { ok: false, reason: "cf_auth_failed" };
   }
 
@@ -456,12 +452,7 @@ async function evaluateReplyException(env, config, hooks, ctx) {
   if (!senderAuthorized) return { ok: false, reason: "sender_not_authorized" };
   if (!actor.ok) return { ok: false, reason: "identity_unbound" };
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  if (
-    !hooks.skipCfAuth &&
-    !cfAuthLooksPass(rawText, headerFrom) &&
-    !cfAuthLooksPass(rawText, envelopeFrom)
-  ) {
+  if (!hooks.skipCfAuth && !cfAuthLooksPass(rawText, envelopeFrom)) {
     return { ok: false, reason: "cf_auth_failed" };
   }
 
@@ -500,12 +491,9 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     proxy,
   } = ctx;
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allow = effectiveAuthorizedFrom(config);
-  if (
-    !isAuthorizedSender(envelopeFrom, allow) &&
-    !isAuthorizedSender(headerFrom, allow)
-  ) {
+  // Envelope From only — MIME From is spoofable.
+  if (!isAuthorizedSender(envelopeFrom, allow)) {
     // Reject — do not open relay
     try {
       message.setReject?.(
@@ -519,7 +507,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  const actor = resolveInboundActor(config, envelopeFrom);
   if (!actor.ok) {
     try {
       message.setReject?.(`send-proxy: ${actor.error}`);
@@ -531,8 +519,8 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  // Defense-in-depth: require CF Authentication-Results pass (same as reply hop).
-  if (!cfAuthLooksPass(rawText, headerFrom) && !cfAuthLooksPass(rawText, envelopeFrom)) {
+  // Defense-in-depth: CF auth aligned to envelope identity only.
+  if (!cfAuthLooksPass(rawText, envelopeFrom)) {
     if (!hooks.skipCfAuth) {
       try {
         message.setReject?.("send-proxy: missing CF auth pass");
@@ -854,12 +842,9 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     replyTok,
   } = ctx;
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allow = effectiveAuthorizedFrom(config);
-  if (
-    !isAuthorizedSender(envelopeFrom, allow) &&
-    !isAuthorizedSender(headerFrom, allow)
-  ) {
+  // Envelope From only — MIME From is spoofable.
+  if (!isAuthorizedSender(envelopeFrom, allow)) {
     try {
       message.setReject?.("reply-token: sender not authorized");
     } catch {
@@ -870,7 +855,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  const actor = resolveInboundActor(config, envelopeFrom);
   if (!actor.ok) {
     try {
       message.setReject?.(`reply-token: ${actor.error}`);
@@ -882,7 +867,8 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  if (!cfAuthLooksPass(rawText, headerFrom) && !cfAuthLooksPass(rawText, envelopeFrom)) {
+  // Defense-in-depth: CF auth aligned to envelope identity only.
+  if (!cfAuthLooksPass(rawText, envelopeFrom)) {
     // Fail closed unless hook overrides for tests
     if (!hooks.skipCfAuth) {
       try {
