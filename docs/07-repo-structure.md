@@ -11,6 +11,7 @@
 ├── scripts/                   # optional scenario helpers
 ├── src/
 │   ├── index.js               # email + fetch entry
+│   ├── load_config.js         # ROUTING_YAML required (Q41; no example import)
 │   ├── config.js
 │   ├── pipeline.js            # inbound core
 │   ├── compose.js             # HTTP compose / smtp-selftest
