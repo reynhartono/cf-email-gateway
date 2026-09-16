@@ -1,7 +1,11 @@
 # 02 — Config and routing
 
-SoT example: `config/routing.example.yaml`.  
-Live: wrangler secret `ROUTING_YAML` (or gitignored local overlay).
+SoT example (docs / copy-paste only): `config/routing.example.yaml`.  
+**Live runtime SoT:** non-empty wrangler secret `ROUTING_YAML` (from a gitignored local file).  
+
+Missing, empty, or unparsable `ROUTING_YAML` **fails closed** (Q41): inbound email throws; HTTP compose/selftest returns **503**. `/health` stays up and reports `routing_ok: false`. The Worker does **not** import or fall back to the example file — not even behind a flag.  
+
+Local DX: copy the example into `.dev.vars` / a local secret as `ROUTING_YAML` (same path as production).
 
 ## Shape
 

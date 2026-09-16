@@ -16,10 +16,10 @@ Worker email() handler
     └─
 
 HTTP fetch()
-    ├─ GET  /health
-    ├─ POST /v1/compose
-    └─ GET  /v1/smtp-selftest
+    ├─ GET  /health              # entry only: { ok, service, routing_ok }
+    ├─ POST /v1/compose          # requires ROUTING_YAML (else 503)
+    └─ GET  /v1/smtp-selftest    # requires ROUTING_YAML (else 503)
 ```
 
 Bindings: **D1** (`DB`), **R2** (`ARCHIVE`).  
-Secrets: `ROUTING_YAML`, `SMTP_*`, `COMPOSE_API_TOKEN`.
+Secrets: `ROUTING_YAML` (required), `SMTP_*`, `COMPOSE_API_TOKEN`.

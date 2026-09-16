@@ -4,12 +4,6 @@ compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
 
-# Import .yaml as text modules
-[[rules]]
-type = "Text"
-globs = ["**/*.yaml", "**/*.yml"]
-fallthrough = true
-
 [[d1_databases]]
 binding = "DB"
 database_name = "cf-email-gateway"

@@ -23,6 +23,14 @@ curl -sS -H "Authorization: Bearer $COMPOSE_API_TOKEN" \
 
 Redeploy. Dashboard plain Text env is wiped by `wrangler deploy`.
 
+## ROUTING_YAML required (Q41)
+
+- Live Worker **must** have non-empty secret `ROUTING_YAML`. Example YAML is never imported into the Worker bundle.
+- **After every deploy / pin:** confirm live `GET /health` shows `"routing_ok": true` **before** relying on Email Routing. Until then inbound throws (CF may retry) — intended fail-closed, not silent example policy.
+- `routing_ok: false` → put secret + redeploy; do not expect mail/compose to work.
+- Empty secret / wipe / first boot without `secret put` → inbound throws; compose/selftest **503**.
+- `GET /health` is handled only at the Worker entry (`src/index.js`); it stays up with `ok: true` even when routing is missing so probes can distinguish process-up vs config-ok.
+
 ## D1 peek
 
 ```bash

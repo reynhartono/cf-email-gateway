@@ -1,5 +1,6 @@
 /**
- * HTTP: health, compose, SMTP selftest
+ * HTTP: compose + SMTP selftest
+ * (GET /health is owned by src/index.js — includes routing_ok; do not duplicate here.)
  */
 
 import { resolveMailFrom } from "./mail_from.js";
@@ -19,10 +20,6 @@ import {
 export async function handleCompose(request, env, config) {
   const url = new URL(request.url);
   const path = url.pathname;
-
-  if (request.method === "GET" && path === "/health") {
-    return json({ ok: true, service: env.SERVICE_NAME || "cf-email-gateway" });
-  }
 
   if (path === "/v1/smtp-selftest" || path === "/smtp-selftest") {
     return handleSmtpSelftest(request, env, config);

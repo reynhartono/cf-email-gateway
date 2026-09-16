@@ -121,6 +121,15 @@ npx wrangler secret put ROUTING_YAML < config/routing.local.yaml
 
 `config/routing.local.yaml` is gitignored. Dashboard plain-text env vars are wiped by `wrangler deploy` — **secrets only**.
 
+The Worker **requires** non-empty `ROUTING_YAML` at runtime (Q41). It does **not** fall back to `config/routing.example.yaml`. After deploy, confirm:
+
+```bash
+curl -sS "https://cf-email-gateway.<account>.workers.dev/health"
+# expect: {"ok":true,"service":"cf-email-gateway","routing_ok":true}
+```
+
+If `routing_ok` is `false`, put the secret and **redeploy**. For local `wrangler dev`, put the same YAML in `.dev.vars` as `ROUTING_YAML` (multiline) — there is no bundled-example escape hatch.
+
 ---
 
 ## 6. SMTP and compose secrets
@@ -244,7 +253,8 @@ Not required for archive/forward/compose/send-proxy.
 
 | Topic | Detail |
 |-------|--------|
-| Config SoT | Secret `ROUTING_YAML` at runtime; example file is documentation only |
+| Config SoT | Secret `ROUTING_YAML` at runtime; example file is documentation only (no silent fallback — Q41) |
+| Missing secret | Email throws; HTTP → 503; `/health` → `ok:true` + `routing_ok:false` |
 | Deploy wipes | Dashboard **plain Text** Worker vars — use **secrets** |
 | Worker name | Default `cf-email-gateway`; Email Routing action must match |
 | Retries | B9: partial failure throws; CF retries; succeeded dests skipped |

@@ -28,7 +28,7 @@ Extension polish is companion repo `cfeg-reply-extension`.
 5. MailProvider port; SMTP adapter only.  
 6. delivery_targets + delivery_attempts.  
 7. Partial dest failure → THROW; retry unfinished only.  
-8. Config = git example YAML + wrangler **secrets** (`ROUTING_YAML`).  
+8. Config = git example YAML (docs only) + wrangler **secret** `ROUTING_YAML` required at runtime (no silent example fallback; Q41).  
 9. No secrets/PII/real .eml / owner domains in git — synthetic `example.com` / `me@gmail.com` only.  
 10. Name: cf-email-gateway.  
 

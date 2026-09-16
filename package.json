@@ -1,6 +1,6 @@
 {
   "name": "cf-email-gateway",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "type": "module",
   "description": "Cloudflare Email Routing gateway \u2014 archive, cf_forward + X-CFEG tokens, SMTP compose / send-proxy / reply-hop",
