@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { normalizeConfig, normalizeDisplayName } from "../src/config.js";
 import {
   pickFromDisplayName,
-  resolveAliasDisplayName,
+  resolveConfiguredDisplayName,
 } from "../src/mail_from.js";
 import { resolveRuleDisplayName } from "../src/util.js";
 import { handleInbound } from "../src/pipeline.js";
@@ -182,7 +182,7 @@ describe("pickFromDisplayName", () => {
       "Shop Support",
     );
     assert.equal(
-      resolveAliasDisplayName(config, "missing@example.com", [
+      resolveConfiguredDisplayName(config, "missing@example.com", [
         "shops@example.com",
       ]),
       "Shop Support",

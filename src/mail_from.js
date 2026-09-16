@@ -18,14 +18,14 @@ export function bareMailboxAddress(email) {
 }
 
 /**
- * Configured From display name from rules (Q42).
- * Lookup order: exact mailFrom, then any extra candidate addresses (e.g. pre-remap).
+ * Configured From display name (Q42): rules → domain → defaults.
+ * Tries mailFrom first, then optional extra candidates (e.g. pre-remap address).
  * @param {import('./config.js').RoutingConfig} config
  * @param {string} email
  * @param {string[]} [alsoTry]
  * @returns {string | undefined}
  */
-export function resolveAliasDisplayName(config, email, alsoTry = []) {
+export function resolveConfiguredDisplayName(config, email, alsoTry = []) {
   const keys = [email, ...alsoTry]
     .map((e) => bareMailboxAddress(e))
     .filter(Boolean);
@@ -40,7 +40,7 @@ export function resolveAliasDisplayName(config, email, alsoTry = []) {
 }
 
 /**
- * Prefer explicit display, else rule.display_name (Q42).
+ * Prefer explicit display, else configured rule/domain/defaults name (Q42).
  * @param {import('./config.js').RoutingConfig} config
  * @param {string | undefined | null} explicit
  * @param {string} mailFrom
@@ -50,7 +50,7 @@ export function resolveAliasDisplayName(config, email, alsoTry = []) {
 export function pickFromDisplayName(config, explicit, mailFrom, alsoTry = []) {
   const e = explicit != null ? String(explicit).trim() : "";
   if (e) return e;
-  return resolveAliasDisplayName(config, mailFrom, alsoTry);
+  return resolveConfiguredDisplayName(config, mailFrom, alsoTry);
 }
 
 /**
