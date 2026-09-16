@@ -4,8 +4,11 @@
  */
 
 import { resolveMailFrom } from "./mail_from.js";
-import { sendOutboundMime } from "./providers/send_outbound.js";
-import { hasSmtp } from "./providers/smtp.js";
+import {
+  assertNoHeaderControlChars,
+  sendOutboundMime,
+} from "./providers/send_outbound.js";
+import { bareEmail, hasSmtp } from "./providers/smtp.js";
 import { randomId } from "./util.js";
 import {
   identityMaySendAs,
@@ -95,6 +98,8 @@ export async function handleCompose(request, env, config) {
 
   const id = randomId();
   if (!result.ok) {
+    // clientError = bad JSON fields / MIME construction (issue #9) → 400
+    const status = result.clientError ? 400 : 502;
     return json(
       {
         ok: false,
@@ -104,7 +109,7 @@ export async function handleCompose(request, env, config) {
         identity: caller.identity.id,
         provider_status: result.providerStatus,
       },
-      502,
+      status,
     );
   }
 
@@ -166,15 +171,33 @@ async function handleSmtpSelftest(request, env, config) {
   }
 
   const url = new URL(request.url);
-  let to =
+  let toRaw =
     url.searchParams.get("to") || config?.default_inbox || "me@gmail.com";
   if (request.method === "POST") {
     try {
       const b = await request.json();
-      if (b?.to) to = b.to;
+      if (b?.to) toRaw = b.to;
     } catch {
       /* ignore */
     }
+  }
+
+  let to;
+  try {
+    assertNoHeaderControlChars("to", toRaw);
+    to = bareEmail(toRaw);
+  } catch (err) {
+    return json(
+      {
+        ok: false,
+        error: err?.message || "invalid to",
+        present,
+      },
+      400,
+    );
+  }
+  if (!to) {
+    return json({ ok: false, error: "to must be a valid email", present }, 400);
   }
 
   const boundary = `b${Date.now()}`;

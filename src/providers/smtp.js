@@ -243,11 +243,18 @@ export async function smtpSend(env, req) {
 }
 
 function bareEmail(v) {
-  const s = String(v || "").trim();
+  // Never retain CR/LF — SMTP RCPT / envelope must stay single-token.
+  let s = String(v || "")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
   const m = s.match(/<([^>]+@[^>]+)>/);
-  if (m) return m[1].trim().toLowerCase();
-  if (s.includes("@")) return s.replace(/^mailto:/i, "").toLowerCase();
-  return "";
+  if (m) s = m[1].trim();
+  else if (s.includes("@")) s = s.replace(/^mailto:/i, "").trim();
+  else return "";
+  // Drop interior whitespace left by CRLF collapse; reject if still not addr-like.
+  s = s.replace(/\s+/g, "");
+  if (!/^[^\s<>@"\\]+@[^\s<>@"\\]+$/.test(s)) return "";
+  return s.toLowerCase();
 }
 
 function withTimeout(promise, deadline, label) {
