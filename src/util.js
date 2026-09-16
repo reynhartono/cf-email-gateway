@@ -226,7 +226,7 @@ export function normalizeLocalForRouting(local, opts = {}) {
  * @param {string} local
  * @param {string} domain
  */
-function matchLocalPartPrefix(match, local, domain) {
+export function matchLocalPartPrefix(match, local, domain) {
   if (matchClaimsReservedLocal(match)) return false;
   const prefix = String(match.value || "").toLowerCase();
   // Namespace lock: require trailing "." so "yumi" cannot claim "yuminetflix".
@@ -237,6 +237,48 @@ function matchLocalPartPrefix(match, local, domain) {
   // Defense: never treat routing local `r` / `r.*` as a normal person hit.
   if (isReservedPersonLocal(local)) return false;
   return local.startsWith(prefix);
+}
+
+/**
+ * Outbound From display name from rules (Q42).
+ * Same address → prefix tiers as inbound match; **ignores catch_all**
+ * (domain-wide From name is not a product shape). Only rules that set
+ * `display_name` contribute. Subaddress-normalized local for match input.
+ *
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} mailbox - full alias / our_mailbox / mailFrom
+ * @returns {string | undefined}
+ */
+export function resolveRuleDisplayName(config, mailbox) {
+  const to = String(mailbox || "")
+    .trim()
+    .toLowerCase();
+  if (!to || !to.includes("@")) return undefined;
+  const rules = config?.rules || [];
+  const { local, domain } = splitEnvelopeTo(to);
+  const routingLocal = normalizeLocalForRouting(local, { purpose: "rule_match" });
+  const routingTo =
+    routingLocal && domain ? `${routingLocal}@${domain}` : to;
+
+  for (const rule of rules) {
+    const m = rule?.match || {};
+    if (m.type !== "address") continue;
+    if (matchClaimsReservedLocal(m)) continue;
+    if (isReservedPersonLocal(routingLocal)) continue;
+    if ((m.value || "").toLowerCase() !== routingTo) continue;
+    const name = String(rule.display_name || "").trim();
+    if (name) return name;
+  }
+
+  for (const rule of rules) {
+    const m = rule?.match || {};
+    if (m.type !== "local_part_prefix") continue;
+    if (!matchLocalPartPrefix(m, routingLocal, domain)) continue;
+    const name = String(rule.display_name || "").trim();
+    if (name) return name;
+  }
+
+  return undefined;
 }
 
 /**

@@ -35,16 +35,19 @@ Inside `{…}` use `_` = space (`__` = literal `_`).
 
 ### Default display without braces (Q42)
 
-When braces are **omitted**, the Worker may still set a From display name from top-level config:
+When braces are **omitted**, the Worker may still set a From display name from the **inbound rule** that owns the alias:
 
 ```yaml
-aliases:
-  shops@example.com:
+rules:
+  - id: shops-bare
+    match: { type: address, value: shops@example.com }
     display_name: Shop Support
+    destinations:
+      - email: me@gmail.com
 ```
 
 Then `shops+alice=gmail.com@example.com` → `From: "Shop Support" <shops@example.com>`.  
-Explicit `{…}` braces always override the config map. Lookup uses the resolved outbound From after `resolveMailFrom` (domain remap), then the pre-remap alias address. The same map applies to **reply hop** From for that mailbox.
+Explicit `{…}` braces always override. Lookup uses address then `local_part_prefix` match on the resolved outbound From (domain remap), then the pre-remap alias address. The same field applies to **reply hop** From for that mailbox. No separate top-level aliases map.
 
 ## Auth
 

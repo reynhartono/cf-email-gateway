@@ -3,9 +3,10 @@
  */
 
 import { recipientDomain } from "./config.js";
+import { resolveRuleDisplayName } from "./util.js";
 
 /**
- * Bare mailbox address for aliases lookup (strip optional "Name" <addr>).
+ * Bare mailbox address for display-name lookup (strip optional "Name" <addr>).
  * @param {string} email
  * @returns {string}
  */
@@ -17,7 +18,7 @@ export function bareMailboxAddress(email) {
 }
 
 /**
- * Configured From display name for an alias (Q42).
+ * Configured From display name from rules (Q42).
  * Lookup order: exact mailFrom, then any extra candidate addresses (e.g. pre-remap).
  * @param {import('./config.js').RoutingConfig} config
  * @param {string} email
@@ -25,8 +26,6 @@ export function bareMailboxAddress(email) {
  * @returns {string | undefined}
  */
 export function resolveAliasDisplayName(config, email, alsoTry = []) {
-  const aliases = config?.aliases;
-  if (!aliases || typeof aliases !== "object") return undefined;
   const keys = [email, ...alsoTry]
     .map((e) => bareMailboxAddress(e))
     .filter(Boolean);
@@ -34,18 +33,14 @@ export function resolveAliasDisplayName(config, email, alsoTry = []) {
   for (const k of keys) {
     if (seen.has(k)) continue;
     seen.add(k);
-    const entry = aliases[k];
-    const name =
-      entry && typeof entry === "object"
-        ? String(entry.display_name || "").trim()
-        : "";
+    const name = resolveRuleDisplayName(config, k);
     if (name) return name;
   }
   return undefined;
 }
 
 /**
- * Prefer explicit display, else configured alias display (Q42).
+ * Prefer explicit display, else rule.display_name (Q42).
  * @param {import('./config.js').RoutingConfig} config
  * @param {string | undefined | null} explicit
  * @param {string} mailFrom

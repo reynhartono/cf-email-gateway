@@ -26,11 +26,6 @@ defaults:
 token_auth:
   authorized_from:
     - me@gmail.com
-# Optional default From display names (Q42) — send-proxy without braces + reply hop
-# aliases:
-#   shops@example.com:
-#     display_name: Shop Support
-#   me@example.com: Reyn
 domains:
   example.com:
     send_as:
@@ -38,29 +33,38 @@ domains:
 rules:
   - id: billing
     match: { type: address, value: billing@example.com }
+    display_name: Billing   # optional (Q42) — outbound From display
     destinations:
       - email: finance@gmail.com
+  - id: alice-bare
+    skip_default_inbox: true
+    match: { type: address, value: alice@example.com }
+    display_name: Alice
+    destinations:
+      - email: alice@gmail.com
 ```
 
-## aliases (From display name)
+## rule `display_name` (From display)
 
-Optional map of **full alias address → display name** for outbound MIME `From` when the operator did not supply a per-message name:
+Optional string on a **rule** that already owns the alias (same row as match + destinations). Used for outbound MIME `From` when the operator did not supply a per-message name:
 
 ```yaml
-aliases:
-  shops@example.com:
-    display_name: Shop Support
-  me@example.com: Reyn   # string shorthand
+- id: alice-bare
+  skip_default_inbox: true
+  match: { type: address, value: alice@example.com }
+  display_name: Alice
+  destinations:
+    - email: alice@gmail.com
 ```
 
 | Path | Precedence |
 |------|------------|
 | Send-proxy with `{aliasDisplay}` braces | Braces win |
-| Send-proxy without braces | `aliases[<resolved mailFrom>]` (then pre-remap candidates) |
-| Reply hop | `aliases[<mailFrom / our_mailbox>]` |
+| Send-proxy without braces | Rule match for resolved `mailFrom` (then pre-remap candidates) |
+| Reply hop | Rule match for `mailFrom` / `our_mailbox` |
 | Compose HTTP | Unchanged — optional JSON `from_name` / `fromName` only |
 
-Missing map or missing key → bare address (previous behavior). Keys lowercased at load; reserved person local `r` / `r.*` keys rejected (Q37). Display values cannot be empty or contain header control characters.
+Lookup tiers (display only): **`address` → `local_part_prefix`** (first prefix with a name). **`catch_all` is ignored** for From display. Subaddress-normalized local for match input (same as inbound). Empty / missing `display_name` → bare address. Values cannot contain header control characters.
 
 ## resolve_driver
 

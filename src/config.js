@@ -98,57 +98,38 @@ function normalizeSendAs(sa) {
 }
 
 /**
- * Optional From display names keyed by full alias address (Q42).
- * Accepts map of address → string | { display_name }.
+ * Optional rule.display_name for outbound MIME From (Q42).
  * @param {unknown} raw
- * @returns {Record<string, { display_name: string }>}
+ * @param {string} where
+ * @returns {string | undefined}
  */
-export function normalizeAliases(raw) {
-  if (raw == null) return {};
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("routing config: aliases must be a mapping of address → display_name");
+export function normalizeDisplayName(raw, where = "display_name") {
+  if (raw == null || raw === "") return undefined;
+  const s = String(raw);
+  if (/[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(s)) {
+    throw new Error(`routing config: ${where} contains control characters`);
   }
-  /** @type {Record<string, { display_name: string }>} */
-  const out = {};
-  for (const [key, val] of Object.entries(raw)) {
-    const addr = String(key || "")
-      .trim()
-      .toLowerCase();
-    if (!addr || !addr.includes("@") || addr.includes(" ")) {
-      throw new Error(
-        `routing config: aliases key must be a bare email address: ${JSON.stringify(key)}`,
-      );
-    }
-    const { local } = splitEnvelopeTo(addr);
-    if (isReservedPersonLocal(local)) {
-      throw new Error(
-        `routing config: reserved local "r" forbidden in aliases: ${addr}`,
-      );
-    }
-    let display;
-    if (typeof val === "string") {
-      display = val;
-    } else if (val && typeof val === "object" && !Array.isArray(val)) {
-      display = val.display_name ?? val.displayName ?? val.name;
-    } else {
-      throw new Error(
-        `routing config: aliases[${addr}] must be a string or { display_name }`,
-      );
-    }
-    display = String(display ?? "")
-      .replace(/[\r\n]+/g, " ")
-      .trim();
-    if (!display) {
-      throw new Error(
-        `routing config: aliases[${addr}].display_name must be a non-empty string`,
-      );
-    }
-    if (/[\r\n\x00-\x1f\x7f]/.test(display)) {
-      throw new Error(
-        `routing config: aliases[${addr}].display_name contains control characters`,
-      );
-    }
-    out[addr] = { display_name: display };
+  const display = s.trim();
+  if (!display) {
+    throw new Error(`routing config: ${where} must be a non-empty string`);
+  }
+  return display;
+}
+
+/**
+ * @param {object} rule
+ * @param {number} index
+ */
+function normalizeRule(rule, index) {
+  if (!rule || typeof rule !== "object") return rule;
+  const id = rule.id != null ? String(rule.id) : `rules[${index}]`;
+  const out = { ...rule };
+  const rawName = out.display_name ?? out.displayName;
+  delete out.displayName;
+  if (rawName != null && rawName !== "") {
+    out.display_name = normalizeDisplayName(rawName, `${id}.display_name`);
+  } else {
+    delete out.display_name;
   }
   return out;
 }
@@ -206,9 +187,10 @@ export function normalizeConfig(raw) {
         : [],
     },
     identities: normalizeIdentities(raw),
-    aliases: normalizeAliases(raw.aliases),
     domains,
-    rules: Array.isArray(raw.rules) ? raw.rules : [],
+    rules: Array.isArray(raw.rules)
+      ? raw.rules.map((r, i) => normalizeRule(r, i))
+      : [],
   };
   assertNoReservedPersonLocal(config);
   return config;

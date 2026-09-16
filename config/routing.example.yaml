@@ -44,14 +44,6 @@ token_auth:
     - me@gmail.com
   # - other@gmail.com
 
-# Optional default From display names for outbound aliases (Q42).
-# Used on send-proxy when {aliasDisplay} braces are omitted, and on reply hop.
-# Explicit braces always win. Compose HTTP still uses optional from_name.
-# aliases:
-#   shops@example.com:
-#     display_name: Shop Support
-#   me@example.com: Reyn   # string shorthand OK
-
 # Optional multi-person ACL (compose From + reply hop our_mailbox + send-proxy alias).
 # When non-empty: each sender/bearer is bound to can_send_as prefixes.
 # identities:
@@ -88,11 +80,15 @@ domains:
 # Optional routes. Match tiers: address → local_part_prefix → catch_all → default_inbox.
 # default_inbox is always added on rule match unless skip_default_inbox: true.
 # Multi-person privacy: person rules should set skip_default_inbox: true (see docs/19).
+# Q42: optional display_name on the address (or prefix) rule for that alias —
+# used as MIME From on send-proxy without braces and on reply hop.
+# Explicit send-proxy {braces} still win. Compose HTTP keeps optional from_name.
 rules:
   - id: billing
     match:
       type: address  # address | local_part_prefix | catch_all
       value: billing@example.com
+    # display_name: Billing
     destinations:
       - email: finance@gmail.com
 
@@ -103,6 +99,7 @@ rules:
       type: local_part_prefix
       value: "alice."
       domain: example.com
+    # display_name: Alice
     destinations:
       - email: alice@gmail.com
 
