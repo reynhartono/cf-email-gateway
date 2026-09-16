@@ -75,7 +75,7 @@ For **rule evaluation only**, the local-part is passed through `normalizeLocalFo
 
 The single-label local **`r`** is reserved for reply-token grammar (`r+TOKEN@apex`):
 
-- Config load **rejects** bare `address` `r@…`, prefix `r.` / bare prefix `r`, `default_inbox` / `compose.default_from` of `r@…` / `r.…`, and matching `identities.can_send_as` entries.
+- Config load **rejects** `address` locals in the full reserved set (`r@…` **and** `r.…@…`), prefix `r.` / bare prefix `r`, `default_inbox` / `compose.default_from` of `r@…` / `r.…`, and matching `identities.can_send_as` entries (same predicate as runtime `isReservedPersonLocal`).
 - Runtime defense: rule match and `can_send_as` never honor slipped `r` / `r.` person hits.
 - Operators must not publish person vanity `r@` or namespace `r.` on Worker-handled apexes (`ryan.` is fine).
 

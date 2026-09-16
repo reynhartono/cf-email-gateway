@@ -36,7 +36,7 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q34 | Exception entry | Hop/proxy only when **all** gates pass (auth + identity + can_send_as + token/resolve); Alice≠Bob alias → default forward |
 | Q35 | Inbound subaddress | Strip `+tag` for **rule match** on person tags **and** send-proxy-shaped locals after exception-skip (`alice+bob=gmail.com` → `alice`; CFEG `{display}` dropped like proxy parse: `alice{Name}+…` → `alice`); **never strip `r+…`** (Option A); raw To in D1/logs |
 | Q36 | can_send_as + tags | Person-tag strip on outbound From / hop mailbox; **do not** strip send-proxy-shaped From; unrestricted unchanged; dedupe still raw To |
-| Q37 | Reserved local `r` | Bare `r@` and prefix `r.` forbidden on rules, `identities.can_send_as`, `default_inbox`, `compose.default_from`; runtime defense if config slips |
+| Q37 | Reserved local `r` | Bare `r@` **and** address `r.…@` / prefix `r.` forbidden on rules, `identities.can_send_as`, `default_inbox`, `compose.default_from` (aligned with `isReservedPersonLocal`); runtime defense if config slips |
 
 
 ## Not open

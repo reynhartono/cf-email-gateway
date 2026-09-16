@@ -5,6 +5,7 @@
 import YAML from "yaml";
 import { normalizeIdentities } from "./identity.js";
 import {
+  isReservedPersonLocal,
   matchClaimsReservedLocal,
   splitEnvelopeTo,
 } from "./util.js";
@@ -41,7 +42,7 @@ export function parseRoutingYaml(text) {
 function assertEmailNotReservedLocal(email, where) {
   if (email == null || email === "") return;
   const { local } = splitEnvelopeTo(String(email).trim().toLowerCase());
-  if (local === "r" || local.startsWith("r.")) {
+  if (isReservedPersonLocal(local)) {
     throw new Error(
       `routing config: reserved local "r" forbidden in ${where}: ${email}`,
     );

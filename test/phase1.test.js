@@ -474,6 +474,30 @@ describe("util", () => {
         }),
       /reserved local/,
     );
+    // address match must ban full reserved set (r and r.*), not bare r only
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "me@gmail.com",
+          rules: [
+            {
+              id: "bad-r-dot",
+              match: { type: "address", value: "r.github@example.com" },
+              destinations: [{ email: "me@gmail.com" }],
+            },
+          ],
+        }),
+      /reserved local/,
+    );
+    assert.throws(
+      () =>
+        normalizeConfig({
+          version: 1,
+          default_inbox: "r.github@example.com",
+        }),
+      /reserved local/,
+    );
     assert.throws(
       () =>
         normalizeConfig({
@@ -541,6 +565,12 @@ describe("util", () => {
           destinations: [{ email: "r-dest@gmail.com" }],
         },
         {
+          id: "slipped-r-github",
+          skip_default_inbox: true,
+          match: { type: "address", value: "r.github@example.com" },
+          destinations: [{ email: "r-github-dest@gmail.com" }],
+        },
+        {
           id: "slipped-r-ns",
           skip_default_inbox: true,
           match: {
@@ -566,6 +596,48 @@ describe("util", () => {
         (d) => d.email,
       ),
       ["me@gmail.com"],
+    );
+    assert.deepEqual(
+      resolveDestinations(c, "r.github@example.com", resolveDriver).destinations.map(
+        (d) => d.email,
+      ),
+      ["me@gmail.com"],
+    );
+  });
+
+  it("resolveDestinations: invalid reply-ish locals strip to r then reserved defense (no bare r@ person hit)", () => {
+    // Near-miss r+ grammar (fails isReplyTokenLocal) → stripPersonPlusTag → "r"
+    // → isReservedPersonLocal blocks person match. Document so nobody "fixes"
+    // this into inventing bare r@ hits.
+    const c = normalizeConfig({
+      version: 1,
+      default_inbox: "me@gmail.com",
+      rules: [
+        {
+          id: "should-never-match",
+          skip_default_inbox: true,
+          match: { type: "address", value: "alice@example.com" },
+          destinations: [{ email: "alice@gmail.com" }],
+        },
+      ],
+    });
+    for (const to of [
+      "r+TOK-bad@example.com",
+      "r+abc!@example.com",
+      "r+not.a.valid.suffix@example.com",
+    ]) {
+      const r = resolveDestinations(c, to, resolveDriver);
+      assert.equal(r.ruleId, null, to);
+      assert.deepEqual(
+        r.destinations.map((d) => d.email),
+        ["me@gmail.com"],
+        to,
+      );
+    }
+    // Valid r+ still Option A (no strip) — also no person rule
+    assert.equal(
+      resolveDestinations(c, "r+abc123@example.com", resolveDriver).ruleId,
+      null,
     );
   });
 

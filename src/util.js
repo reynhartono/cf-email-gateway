@@ -161,7 +161,9 @@ export function matchClaimsReservedLocal(match) {
   const type = String(match.type || "");
   if (type === "address") {
     const { local } = splitEnvelopeTo(String(match.value || "").toLowerCase());
-    return local === "r";
+    // Same set as isReservedPersonLocal / assertEmailNotReservedLocal (Q37):
+    // bare `r` and any `r.*` address — not only bare `r@`.
+    return isReservedPersonLocal(local);
   }
   if (type === "local_part_prefix") {
     const prefix = String(match.value || "").toLowerCase();
