@@ -209,6 +209,8 @@ curl -sS -X POST \
 
 Requires `domains.example.com.send_as.enabled: true` (or your apex) in `ROUTING_YAML`.
 
+Compose MIME fields are fail-closed for header injection: CR/LF in `to`/`cc`, illegal custom header **names**, and unsafe attachment `filename` / `contentType` → **400** (not SMTP 502). Custom header **values** have CR/LF replaced with spaces. `bcc` is accepted for future envelope use but is **not** written into the MIME headers.
+
 ### Inbound
 
 Send mail to any address on the catch-all domain → expect:

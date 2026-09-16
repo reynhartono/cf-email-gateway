@@ -66,6 +66,150 @@ describe("generic smtp outbound", () => {
     assert.match(mime, /<p>Hello<\/p>/);
   });
 
+  it("buildComposeMime rejects CRLF in To (no header injection)", () => {
+    assert.throws(
+      () =>
+        buildComposeMime({
+          mailFrom: "me@example.com",
+          to: "a@b.com\r\nBcc: evil@evil.com",
+          subject: "Hi",
+          text: "Hello",
+        }),
+      (err) => {
+        assert.match(String(err.message), /to|CRLF|header|control/i);
+        return true;
+      },
+    );
+  });
+
+  it("buildComposeMime rejects CRLF in Cc", () => {
+    assert.throws(
+      () =>
+        buildComposeMime({
+          mailFrom: "me@example.com",
+          to: "a@b.com",
+          cc: "c@d.com\nX-Injected: yes",
+          subject: "Hi",
+          text: "Hello",
+        }),
+      (err) => {
+        assert.match(String(err.message), /cc|CRLF|header|control/i);
+        return true;
+      },
+    );
+  });
+
+  it("buildComposeMime rejects illegal custom header names", () => {
+    assert.throws(
+      () =>
+        buildComposeMime({
+          mailFrom: "me@example.com",
+          to: "a@b.com",
+          subject: "Hi",
+          text: "Hello",
+          headers: { "X-Foo\r\nBcc": "smuggled@evil.com" },
+        }),
+      (err) => {
+        assert.match(String(err.message), /header name/i);
+        return true;
+      },
+    );
+  });
+
+  it("buildComposeMime strips CR/LF in custom header values (no new header line)", () => {
+    const mime = buildComposeMime({
+      mailFrom: "me@example.com",
+      to: "a@b.com",
+      subject: "Hi",
+      text: "Hello",
+      headers: { "X-Trace": "one\r\nBcc: evil@evil.com" },
+    });
+    assert.equal(mime.includes("\nBcc:"), false);
+    assert.equal(mime.includes("\rBcc:"), false);
+    assert.match(mime, /^X-Trace: one\s+Bcc: evil@evil.com$/m);
+  });
+
+  it("buildComposeMime rejects CRLF / breakout in attachment filename", () => {
+    assert.throws(
+      () =>
+        buildComposeMime({
+          mailFrom: "me@example.com",
+          to: "a@b.com",
+          subject: "Hi",
+          text: "Hello",
+          attachments: [
+            {
+              filename: 'x.txt"\r\nContent-Type: text/plain',
+              contentType: "application/octet-stream",
+              content: Buffer.from("hi").toString("base64"),
+            },
+          ],
+        }),
+      (err) => {
+        assert.match(String(err.message), /filename|CRLF|control|attachment/i);
+        return true;
+      },
+    );
+  });
+
+  it("buildComposeMime rejects illegal attachment contentType", () => {
+    assert.throws(
+      () =>
+        buildComposeMime({
+          mailFrom: "me@example.com",
+          to: "a@b.com",
+          subject: "Hi",
+          text: "Hello",
+          attachments: [
+            {
+              filename: "x.bin",
+              contentType: 'application/octet-stream; x="y"\r\nX-Evil: 1',
+              content: "YQ==",
+            },
+          ],
+        }),
+      (err) => {
+        assert.match(String(err.message), /contentType|content-type|type/i);
+        return true;
+      },
+    );
+  });
+
+  it("buildComposeMime allows safe custom X- header and attachment", () => {
+    const mime = buildComposeMime({
+      mailFrom: "me@example.com",
+      to: "a@b.com",
+      subject: "Hi",
+      text: "Hello",
+      headers: { "X-Request-Id": "abc-123" },
+      attachments: [
+        {
+          filename: "note.txt",
+          contentType: "text/plain",
+          content: Buffer.from("hi").toString("base64"),
+        },
+      ],
+    });
+    assert.match(mime, /^X-Request-Id: abc-123$/m);
+    assert.match(mime, /filename="note.txt"/);
+    assert.match(mime, /Content-Type: text\/plain; name="note.txt"/);
+  });
+
+  it("sendOutboundMime returns clientError before SMTP check on bad To", async () => {
+    const r = await sendOutboundMime(
+      {},
+      {
+        to: "a@b.com\r\nBcc: evil@evil.com",
+        mailFrom: "me@example.com",
+        subject: "x",
+        text: "y",
+      },
+    );
+    assert.equal(r.ok, false);
+    assert.equal(r.clientError, true);
+    assert.match(r.error, /to|CRLF|header|control/i);
+  });
+
   it("sendOutboundMime fails without SMTP secrets", async () => {
     const r = await sendOutboundMime(
       {},
@@ -205,6 +349,29 @@ describe("compose HTTP", () => {
     const j = await res.json();
     assert.equal(j.identity, "alice");
     assert.equal(j.mail_from, "alice.netflix@example.com");
+  });
+
+  it("400 when To contains CRLF header injection", async () => {
+    const res = await handleCompose(
+      new Request("https://x/v1/compose", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          to: "friend@gmail.com\r\nBcc: evil@evil.com",
+          subject: "Hello",
+          text: "World",
+        }),
+      }),
+      { COMPOSE_API_TOKEN: "secret" },
+      config,
+    );
+    assert.equal(res.status, 400);
+    const j = await res.json();
+    assert.equal(j.ok, false);
+    assert.match(j.error, /to|CRLF|header|control/i);
   });
 });
 
