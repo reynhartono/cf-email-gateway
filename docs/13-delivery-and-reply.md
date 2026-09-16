@@ -19,7 +19,8 @@ Auth: `token_auth.authorized_from` / identities + CF Authentication-Results pass
 
 ## Send-proxy (exception)
 
-See [17-send-proxy.md](./17-send-proxy.md). Unauthorized proxy-shaped To stays on default forward.
+See [17-send-proxy.md](./17-send-proxy.md). Unauthorized or CF-auth-fail proxy-shaped To stays on default forward.  
+Auth matches reply hop: allowlist / identities **+ CF Authentication-Results pass** (fail closed; MIME `From` alone is not enough).
 
 ## Body fidelity
 

@@ -63,7 +63,7 @@ describe("isAuthorizedSender", () => {
 });
 
 describe("send proxy pipeline", () => {
-  it("sends via smtp hook when authorized", async () => {
+  it("sends via smtp hook when authorized + CF auth pass", async () => {
     const DB = createMemoryDb();
     const config = normalizeConfig({
       version: 1,
@@ -72,7 +72,7 @@ describe("send proxy pipeline", () => {
       domains: { "example.com": { send_as: { enabled: true } } },
     });
     const raw =
-      "From: me@gmail.com\r\nTo: shops+friend=gmail.com@example.com\r\nSubject: Hi\r\nMessage-ID: <pxy1@t>\r\n\r\nHello friend";
+      "From: me@gmail.com\r\nTo: shops+friend=gmail.com@example.com\r\nSubject: Hi\r\nMessage-ID: <pxy1@t>\r\nAuthentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com; spf=pass\r\n\r\nHello friend";
     const msg = fakeMessage({
       from: "me@gmail.com",
       to: "shops+friend=gmail.com@example.com",
@@ -101,6 +101,78 @@ describe("send proxy pipeline", () => {
     assert.match(mime, /To:.*friend@gmail\.com/i);
     assert.match(mime, /Subject: Hi/);
     assert.match(mime, /Hello friend/);
+  });
+
+  it("does not send-proxy on spoofed MIME From without CF auth (issue #6)", async () => {
+    // Attacker controls envelope From; spoofs allowlisted MIME From only.
+    // Must stay on default cf_forward — no open-relay / alias impersonation.
+    const DB = createMemoryDb();
+    const config = normalizeConfig({
+      version: 1,
+      archive: { enabled: false },
+      token_auth: { authorized_from: ["me@gmail.com"] },
+      default_inbox: "me@gmail.com",
+      domains: { "example.com": { send_as: { enabled: true } } },
+    });
+    const raw =
+      "From: me@gmail.com\r\nTo: shops+victim=gmail.com@example.com\r\nSubject: phish\r\nMessage-ID: <pxy-spoof@t>\r\n\r\nsteal";
+    const msg = fakeMessage({
+      from: "evil@attacker.example",
+      to: "shops+victim=gmail.com@example.com",
+      raw,
+    });
+    let forwarded = null;
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
+  });
+
+  it("does not send-proxy when authorized From lacks CF Authentication-Results", async () => {
+    const DB = createMemoryDb();
+    const config = normalizeConfig({
+      version: 1,
+      archive: { enabled: false },
+      token_auth: { authorized_from: ["me@gmail.com"] },
+      default_inbox: "me@gmail.com",
+      domains: { "example.com": { send_as: { enabled: true } } },
+    });
+    const raw =
+      "From: me@gmail.com\r\nTo: shops+friend=gmail.com@example.com\r\nSubject: Hi\r\nMessage-ID: <pxy-noar@t>\r\n\r\nHello";
+    const msg = fakeMessage({
+      from: "me@gmail.com",
+      to: "shops+friend=gmail.com@example.com",
+      raw,
+    });
+    let smtpCalled = false;
+    let forwarded = null;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
   });
 
   it("forwards unauthorized proxy-shaped To as normal inbound (no reject)", async () => {
@@ -219,6 +291,7 @@ describe("send proxy pipeline", () => {
     let forwarded = null;
     let smtpCalled = false;
     const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      skipCfAuth: true,
       archivePut: async () => ({ ok: true, r2_key: "k" }),
       deliver: async (_env, _message, t) => {
         forwarded = t.destination;
@@ -256,7 +329,7 @@ describe("send proxy pipeline", () => {
       domains: { "example.com": { send_as: { enabled: true } } },
     });
     const raw =
-      "From: alice@gmail.com\r\nTo: alice.shop+friend=gmail.com@example.com\r\nSubject: Hi\r\nMessage-ID: <pxy-ok@t>\r\n\r\nYes";
+      "From: alice@gmail.com\r\nTo: alice.shop+friend=gmail.com@example.com\r\nSubject: Hi\r\nMessage-ID: <pxy-ok@t>\r\nAuthentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com\r\n\r\nYes";
     const msg = fakeMessage({
       from: "alice@gmail.com",
       to: "alice.shop+friend=gmail.com@example.com",
