@@ -161,9 +161,25 @@ export function normalizeConfig(raw) {
       if (d.send_as && typeof d.send_as === "object") {
         d.send_as = normalizeSendAs({ ...sendAs, ...d.send_as });
       }
+      // Q42: optional domain-wide From display fallback
+      const domName = d.display_name ?? d.displayName;
+      delete d.displayName;
+      if (domName != null && domName !== "") {
+        d.display_name = normalizeDisplayName(
+          domName,
+          `domains.${k}.display_name`,
+        );
+      } else {
+        delete d.display_name;
+      }
       domains[k] = d;
     }
   }
+
+  const defaultsDisplay = normalizeDisplayName(
+    defaults.display_name ?? defaults.displayName,
+    "defaults.display_name",
+  );
 
   const config = {
     version: 1,
@@ -173,6 +189,7 @@ export function normalizeConfig(raw) {
       provider: defaults.provider ?? "smtp",
       send_as: sendAs,
       reply_as: defaults.reply_as ?? {},
+      ...(defaultsDisplay ? { display_name: defaultsDisplay } : {}),
     },
     compose: {
       default_from: raw.compose?.default_from ?? undefined,

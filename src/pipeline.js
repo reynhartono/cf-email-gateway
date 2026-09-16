@@ -627,7 +627,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
   const toField = proxy.rcptDisplay
     ? formatSmtpMailbox(proxy.rcptDisplay, proxy.rcptEmail)
     : proxy.rcptEmail;
-  // Q42: braces win; else aliases.<mailFrom>.display_name
+  // Q42: braces win; else rule / domain display_name
   const fromDisplay = pickFromDisplayName(
     config,
     proxy.aliasDisplay,
@@ -1017,7 +1017,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
       (d) => d.email.toLowerCase() === t.destination.toLowerCase(),
     );
     const toField = formatSmtpMailbox(part?.display_hint || "", t.destination);
-    // Q42: configured alias display for our_mailbox / resolved From
+    // Q42: rule / domain display_name for our_mailbox / resolved From
     const fromDisplay = pickFromDisplayName(config, null, mailFrom, [mailbox]);
     const fromField = fromDisplay
       ? formatSmtpMailbox(fromDisplay, mailFrom)

@@ -35,19 +35,34 @@ Inside `{…}` use `_` = space (`__` = literal `_`).
 
 ### Default display without braces (Q42)
 
-When braces are **omitted**, the Worker may still set a From display name from the **inbound rule** that owns the alias:
+When braces are **omitted**, From display is resolved in order:
+
+1. Optional **`display_name` on a matching rule** (`address`, then `local_part_prefix`)  
+2. Optional **`domains.<apex>.display_name`** (whole-domain default)  
+3. Optional **`defaults.display_name`**  
+4. Bare address  
 
 ```yaml
+domains:
+  example.com:
+    send_as: { enabled: true }
+    display_name: Example Co
 rules:
   - id: shops-bare
     match: { type: address, value: shops@example.com }
-    display_name: Shop Support
+    display_name: Shop Support   # optional; wins over domain default
     destinations:
       - email: me@gmail.com
+  - id: alice-person-ns
+    match: { type: local_part_prefix, value: "alice.", domain: example.com }
+    display_name: Alice           # optional; covers alice.netflix@…
+    destinations:
+      - email: alice@gmail.com
 ```
 
 Then `shops+alice=gmail.com@example.com` → `From: "Shop Support" <shops@example.com>`.  
-Explicit `{…}` braces always override. Lookup uses address then `local_part_prefix` match on the resolved outbound From (domain remap), then the pre-remap alias address. The same field applies to **reply hop** From for that mailbox. No separate top-level aliases map.
+A mailbox with no rule name (or a rule without `display_name`) uses the domain default.  
+Explicit `{…}` braces always override. Same lookup on **reply hop**. No separate top-level aliases map.
 
 ## Auth
 

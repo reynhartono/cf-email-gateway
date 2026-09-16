@@ -63,6 +63,7 @@ domains:
     send_as:
       enabled: true
     reply_as: {}
+    # display_name: Example Co   # Q42 domain default From when no rule name
 
   other.example:
     send_as:
@@ -80,8 +81,9 @@ domains:
 # Optional routes. Match tiers: address → local_part_prefix → catch_all → default_inbox.
 # default_inbox is always added on rule match unless skip_default_inbox: true.
 # Multi-person privacy: person rules should set skip_default_inbox: true (see docs/19).
-# Q42: optional display_name on the address (or prefix) rule for that alias —
-# used as MIME From on send-proxy without braces and on reply hop.
+# Q42: optional display_name on address or local_part_prefix rules; else
+# domains.<apex>.display_name / defaults.display_name. All optional.
+# Used as MIME From on send-proxy without braces and on reply hop.
 # Explicit send-proxy {braces} still win. Compose HTTP keeps optional from_name.
 rules:
   - id: billing

@@ -13,4 +13,4 @@
 | **reserved local `r`** | Bare `r@` and prefix `r.` forbidden as person mailboxes — reserved for reply-token grammar `r+TOKEN@` |
 | **B9** | Archive + delivery same run; SUCCESS only if both required paths ok |
 | **ROUTING_YAML** | Wrangler secret holding live routing config (required at runtime; example file is docs-only, not bundled into the Worker) |
-| **display_name** | Optional string on an inbound **rule** (Q42); default MIME From display for that alias on send-proxy without braces and reply hop |
+| **display_name** | Optional From display (Q42): on a **rule** (`address` / `local_part_prefix`), and/or **`domains.<apex>.display_name`** / `defaults.display_name`; send-proxy without braces + reply hop |

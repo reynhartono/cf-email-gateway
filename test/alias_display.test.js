@@ -46,6 +46,17 @@ describe("rule display_name normalize (Q42)", () => {
 describe("resolveRuleDisplayName", () => {
   const config = normalizeConfig({
     version: 1,
+    defaults: { display_name: "Global Default" },
+    domains: {
+      "example.com": {
+        send_as: { enabled: true },
+        display_name: "Example Co",
+      },
+      "other.example": {
+        send_as: { enabled: true },
+        // no domain display_name → defaults
+      },
+    },
     rules: [
       {
         id: "alice-bare",
@@ -68,6 +79,12 @@ describe("resolveRuleDisplayName", () => {
       {
         id: "shops",
         match: { type: "address", value: "shops@example.com" },
+        // no display_name — fall through to domain
+        destinations: [{ email: "me@gmail.com" }],
+      },
+      {
+        id: "named-shops",
+        match: { type: "address", value: "brand@example.com" },
         display_name: "Shop Support",
         destinations: [{ email: "me@gmail.com" }],
       },
@@ -80,18 +97,41 @@ describe("resolveRuleDisplayName", () => {
     ],
   });
 
-  it("prefers address rule over prefix", () => {
+  it("prefers address rule over prefix over domain", () => {
     assert.equal(resolveRuleDisplayName(config, "alice@example.com"), "Alice");
     assert.equal(
       resolveRuleDisplayName(config, "alice.netflix@example.com"),
       "Alice NS",
     );
+    assert.equal(
+      resolveRuleDisplayName(config, "brand@example.com"),
+      "Shop Support",
+    );
+  });
+
+  it("uses domain display_name when rule has no name or no rule", () => {
+    assert.equal(
+      resolveRuleDisplayName(config, "shops@example.com"),
+      "Example Co",
+    );
+    assert.equal(
+      resolveRuleDisplayName(config, "unknown@example.com"),
+      "Example Co",
+    );
+  });
+
+  it("uses defaults.display_name when domain has none", () => {
+    assert.equal(
+      resolveRuleDisplayName(config, "x@other.example"),
+      "Global Default",
+    );
   });
 
   it("ignores catch_all display_name", () => {
-    assert.equal(
+    // unknown@ still gets domain default, never catch_all name
+    assert.notEqual(
       resolveRuleDisplayName(config, "unknown@example.com"),
-      undefined,
+      "Should Not Apply",
     );
   });
 
@@ -100,6 +140,21 @@ describe("resolveRuleDisplayName", () => {
       resolveRuleDisplayName(config, "alice+promo@example.com"),
       "Alice",
     );
+  });
+
+  it("rules without display_name still load (field optional)", () => {
+    const c = normalizeConfig({
+      version: 1,
+      rules: [
+        {
+          id: "plain",
+          match: { type: "address", value: "a@example.com" },
+          destinations: [{ email: "a@gmail.com" }],
+        },
+      ],
+    });
+    assert.equal(c.rules[0].display_name, undefined);
+    assert.equal(resolveRuleDisplayName(c, "a@example.com"), undefined);
   });
 });
 

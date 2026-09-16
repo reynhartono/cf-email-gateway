@@ -44,27 +44,51 @@ rules:
       - email: alice@gmail.com
 ```
 
-## rule `display_name` (From display)
+## rule / domain `display_name` (From display)
 
-Optional string on a **rule** that already owns the alias (same row as match + destinations). Used for outbound MIME `From` when the operator did not supply a per-message name:
+Optional strings for outbound MIME `From` when the operator did not supply a per-message name. **Everything here is optional** — omit all → bare address (previous behavior).
 
 ```yaml
-- id: alice-bare
-  skip_default_inbox: true
-  match: { type: address, value: alice@example.com }
-  display_name: Alice
-  destinations:
-    - email: alice@gmail.com
+defaults:
+  # display_name: Family   # optional global fallback
+domains:
+  example.com:
+    send_as: { enabled: true }
+    display_name: Example Co   # domain default if no rule name
+rules:
+  - id: alice-bare
+    skip_default_inbox: true
+    match: { type: address, value: alice@example.com }
+    display_name: Alice           # optional; wins for alice@ / alice+tag@
+    destinations:
+      - email: alice@gmail.com
+  - id: alice-person-ns
+    skip_default_inbox: true
+    match: { type: local_part_prefix, value: "alice.", domain: example.com }
+    display_name: Alice           # optional; wins for alice.netflix@ etc.
+    destinations:
+      - email: alice@gmail.com
+  - id: shops
+    match: { type: address, value: shops@example.com }
+    # no display_name → domain / defaults / bare
+    destinations:
+      - email: me@gmail.com
 ```
 
 | Path | Precedence |
 |------|------------|
 | Send-proxy with `{aliasDisplay}` braces | Braces win |
-| Send-proxy without braces | Rule match for resolved `mailFrom` (then pre-remap candidates) |
-| Reply hop | Rule match for `mailFrom` / `our_mailbox` |
+| Send-proxy without braces / reply hop | See lookup tiers |
 | Compose HTTP | Unchanged — optional JSON `from_name` / `fromName` only |
 
-Lookup tiers (display only): **`address` → `local_part_prefix`** (first prefix with a name). **`catch_all` is ignored** for From display. Subaddress-normalized local for match input (same as inbound). Empty / missing `display_name` → bare address. Values cannot contain header control characters.
+**Lookup tiers** (first hit with a non-empty name):
+
+1. **`match.type: address`** rule for the mailbox (subaddress-normalized)  
+2. **`match.type: local_part_prefix`** rule (e.g. `alice.` → `alice.netflix@`)  
+3. **`domains.<apex>.display_name`** — whole-domain default when no rule name  
+4. **`defaults.display_name`** — global fallback  
+
+**`catch_all` rules are ignored** for From display. A matched address/prefix rule **without** `display_name` does not block fallthrough to domain/defaults. Values cannot contain header control characters.
 
 ## resolve_driver
 
