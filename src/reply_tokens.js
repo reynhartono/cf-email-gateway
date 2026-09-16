@@ -3,7 +3,7 @@
  */
 
 import { recipientDomain } from "./config.js";
-import { getHeader } from "./util.js";
+import { getAllHeaders, getHeader } from "./util.js";
 
 const TOKEN_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
@@ -301,19 +301,190 @@ function parseOneAddress(s) {
 }
 
 
-export function cfAuthLooksPass(rawText, fromEmail) {
-  const ar =
-    getHeader(rawText, "authentication-results") ||
-    getHeader(rawText, "arc-authentication-results") ||
-    "";
-  if (!ar) return false;
-  const low = ar.toLowerCase();
-  const hasPass =
-    /dkim=pass/.test(low) || /spf=pass/.test(low) || /dmarc=pass/.test(low);
-  if (!hasPass) return false;
-  const dom = recipientDomain(fromEmail);
-  if (dom === "gmail.com" || dom === "googlemail.com") {
-    return /gmail\.com|google\.com|googlemail\.com/.test(low) || hasPass;
+/**
+ * Canonicalize mailbox domains for alignment (googlemail ↔ gmail).
+ * @param {string} dom
+ */
+function canonicalizeAuthDomain(dom) {
+  const d = String(dom || "")
+    .toLowerCase()
+    .replace(/^@+/, "")
+    .replace(/\.$/, "");
+  if (d === "googlemail.com") return "gmail.com";
+  return d;
+}
+
+/**
+ * Relaxed domain alignment: exact match, or one is a labeled subdomain of the other.
+ * Also treats gmail.com / googlemail.com as the same org; google.com aligns to gmail From
+ * (Gmail often DKIM-signs with d=google.com / i=@google.com in some paths).
+ * @param {string} fromDomain domain of the identity we are authorizing
+ * @param {string} authDomain domain extracted from AR props
+ */
+export function domainsAlignForAuth(fromDomain, authDomain) {
+  const a = canonicalizeAuthDomain(fromDomain);
+  const b = canonicalizeAuthDomain(authDomain);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.endsWith("." + b) || b.endsWith("." + a)) return true;
+  // Gmail From may be authenticated under google.com signing domain
+  if (
+    (a === "gmail.com" || a === "google.com") &&
+    (b === "gmail.com" || b === "google.com")
+  ) {
+    return true;
   }
-  return hasPass;
+  return false;
+}
+
+/**
+ * Extract domain from an AR property value (addr-spec or bare domain).
+ * @param {string} raw
+ */
+function domainFromArValue(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^<|>$/g, "");
+  if (!s) return "";
+  const at = s.lastIndexOf("@");
+  if (at >= 0) return canonicalizeAuthDomain(s.slice(at + 1));
+  return canonicalizeAuthDomain(s);
+}
+
+/**
+ * Parse one Authentication-Results / ARC-Authentication-Results payload
+ * into method results with property map.
+ * @param {string} arValue header body (may include authserv-id)
+ * @returns {{ authservId: string, methods: Array<{ method: string, result: string, props: Record<string,string> }> }}
+ */
+export function parseAuthenticationResults(arValue) {
+  let text = String(arValue || "").trim();
+  if (!text) return { authservId: "", methods: [] };
+
+  // ARC-Authentication-Results often starts with instance tag: i=1; authserv-id; ...
+  text = text.replace(/^i\s*=\s*\d+\s*;\s*/i, "");
+
+  // authserv-id is the first token before ';' (may include version)
+  const semi = text.indexOf(";");
+  const authservId = (semi >= 0 ? text.slice(0, semi) : text)
+    .trim()
+    .split(/\s+/)[0]
+    .toLowerCase();
+  const rest = semi >= 0 ? text.slice(semi + 1) : "";
+
+  /** @type {Array<{ method: string, result: string, props: Record<string,string> }>} */
+  const methods = [];
+  // Split on ';' but keep method chunks
+  for (const chunk of rest.split(";")) {
+    const c = chunk.trim();
+    if (!c) continue;
+    // method=result ...props
+    const m = c.match(
+      /^([a-z0-9][a-z0-9_-]*)\s*=\s*([a-z0-9][a-z0-9_-]*)\b(.*)$/i,
+    );
+    if (!m) continue;
+    const method = m[1].toLowerCase();
+    const result = m[2].toLowerCase();
+    /** @type {Record<string, string>} */
+    const props = {};
+    const propRe =
+      /\b([a-z0-9._-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;]+))/gi;
+    let pm;
+    const propStr = m[3] || "";
+    while ((pm = propRe.exec(propStr)) !== null) {
+      const key = pm[1].toLowerCase();
+      const val = (pm[2] ?? pm[3] ?? pm[4] ?? "").trim();
+      props[key] = val;
+    }
+    methods.push({ method, result, props });
+  }
+  return { authservId, methods };
+}
+
+/**
+ * Collect Authentication-Results / ARC-Authentication-Results from the
+ * receiving ADMD only. Cloudflare Email Routing injects an authserv-id
+ * containing "cloudflare"; client-supplied AR alone must not authorize
+ * hop/proxy (fail closed if no CF line is present).
+ * @param {string} rawText
+ * @returns {string[]}
+ */
+function collectAuthResultsHeaders(rawText) {
+  const ar = getAllHeaders(rawText, "authentication-results");
+  const arc = getAllHeaders(rawText, "arc-authentication-results");
+  const all = [...ar, ...arc];
+  return all.filter((v) => {
+    const id = parseAuthenticationResults(v).authservId;
+    return /cloudflare/i.test(id);
+  });
+}
+
+/**
+ * True when a **Cloudflare** Authentication-Results line shows an **aligned**
+ * pass for the mailbox identity we are authorizing (typically envelope From).
+ *
+ * Alignment (any one is enough):
+ * - dkim=pass with header.d or header.i domain aligned to fromEmail
+ * - spf=pass with smtp.mailfrom / smtp.helo domain aligned
+ * - dmarc=pass with header.from domain aligned
+ *
+ * Gmail From: requires google/gmail/googlemail marker on the aligned method
+ * (or authserv), never a bare unrelated dkim=pass.
+ *
+ * Domain alignment is relaxed (subdomain OK) — a compromised subdomain of an
+ * allowlisted apex can align; operators should treat apex ownership carefully.
+ *
+ * @param {string} rawText
+ * @param {string} fromEmail identity being authorized (envelope From on hop/proxy)
+ */
+export function cfAuthLooksPass(rawText, fromEmail) {
+  const fromDom = canonicalizeAuthDomain(recipientDomain(fromEmail));
+  if (!fromDom) return false;
+
+  const headers = collectAuthResultsHeaders(rawText);
+  if (!headers.length) return false;
+
+  const isGmailFrom = fromDom === "gmail.com";
+
+  for (const arValue of headers) {
+    const { authservId, methods } = parseAuthenticationResults(arValue);
+    for (const { method, result, props } of methods) {
+      if (result !== "pass") continue;
+
+      let authDom = "";
+      if (method === "dkim") {
+        authDom =
+          domainFromArValue(props["header.d"] || "") ||
+          domainFromArValue(props["header.i"] || "") ||
+          domainFromArValue(props.d || "") ||
+          domainFromArValue(props.i || "");
+      } else if (method === "spf") {
+        authDom =
+          domainFromArValue(props["smtp.mailfrom"] || "") ||
+          domainFromArValue(props["smtp.helo"] || "") ||
+          domainFromArValue(props.mailfrom || "");
+      } else if (method === "dmarc") {
+        authDom =
+          domainFromArValue(props["header.from"] || "") ||
+          domainFromArValue(props.from || "");
+      } else {
+        continue;
+      }
+
+      if (!authDom || !domainsAlignForAuth(fromDom, authDom)) continue;
+
+      if (isGmailFrom) {
+        // Narrow Gmail acceptance: aligned domain must be google ecosystem,
+        // or authserv-id must look like Google/CF evaluating Gmail.
+        const googleish =
+          /^(gmail\.com|google\.com|googlemail\.com)$/.test(authDom) ||
+          /gmail\.com|google\.com|googlemail\.com/i.test(authservId);
+        if (!googleish) continue;
+      }
+
+      return true;
+    }
+  }
+  return false;
 }

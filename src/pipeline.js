@@ -149,13 +149,12 @@ export async function handleInbound(env, message, config, hooks = {}) {
     }
   }
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allowList = effectiveAuthorizedFrom(config);
-  const senderAuthorized =
-    isAuthorizedSender(envelopeFrom, allowList) ||
-    isAuthorizedSender(headerFrom, allowList);
+  // Exception authz uses envelope From only — MIME From is spoofable and must
+  // not grant hop/proxy by itself (paired with CF auth on the same identity).
+  const senderAuthorized = isAuthorizedSender(envelopeFrom, allowList);
   const actor = senderAuthorized
-    ? resolveInboundActor(config, envelopeFrom, headerFrom)
+    ? resolveInboundActor(config, envelopeFrom)
     : { ok: false };
 
   // Exceptions to the default route (only when pattern ∧ authorized ∧ bound).
@@ -316,7 +315,8 @@ export async function handleInbound(env, message, config, hooks = {}) {
  *  - address shape matches (r+ or send-proxy)
  *  - sender authorized_from / identity-bound
  *  - mailbox ACL: proxy alias or token our_mailbox ∈ can_send_as (or unrestricted/legacy)
- *  - reply: token row exists; CF auth looks pass (unless hooks.skipCfAuth)
+ *  - CF auth looks pass (unless hooks.skipCfAuth) — reply hop and send-proxy
+ *  - reply: token row exists
  *  - proxy: resolveMailFrom OK for alias@apex
  */
 async function tryDeliveryException(env, message, config, hooks, ctx) {
@@ -377,13 +377,14 @@ async function tryDeliveryException(env, message, config, hooks, ctx) {
   }
 
   if (proxy) {
-    const pxy = evaluateProxyException(config, {
+    const pxy = evaluateProxyException(config, hooks, {
       invocationId,
       envelopeFrom,
       envelopeTo,
       proxy,
       senderAuthorized,
       actor,
+      rawText,
     });
     if (pxy.ok) {
       logger.info("inbound.route", {
@@ -420,10 +421,16 @@ async function tryDeliveryException(env, message, config, hooks, ctx) {
 /**
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
-function evaluateProxyException(config, ctx) {
-  const { proxy, senderAuthorized, actor } = ctx;
+function evaluateProxyException(config, hooks, ctx) {
+  const { proxy, senderAuthorized, actor, rawText, envelopeFrom } = ctx;
   if (!senderAuthorized) return { ok: false, reason: "sender_not_authorized" };
   if (!actor.ok) return { ok: false, reason: "identity_unbound" };
+
+  // CF auth must align to the allowlisted envelope identity — not MIME From
+  // and not "either address" (attacker envelope + spoofed allowlisted From).
+  if (!hooks.skipCfAuth && !cfAuthLooksPass(rawText, envelopeFrom)) {
+    return { ok: false, reason: "cf_auth_failed" };
+  }
 
   const resolved = resolveMailFrom(config, proxy.fromEmail);
   if (!resolved.ok) return { ok: false, reason: `send_proxy_from:${resolved.error}` };
@@ -444,12 +451,7 @@ async function evaluateReplyException(env, config, hooks, ctx) {
   if (!senderAuthorized) return { ok: false, reason: "sender_not_authorized" };
   if (!actor.ok) return { ok: false, reason: "identity_unbound" };
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
-  if (
-    !hooks.skipCfAuth &&
-    !cfAuthLooksPass(rawText, headerFrom) &&
-    !cfAuthLooksPass(rawText, envelopeFrom)
-  ) {
+  if (!hooks.skipCfAuth && !cfAuthLooksPass(rawText, envelopeFrom)) {
     return { ok: false, reason: "cf_auth_failed" };
   }
 
@@ -488,12 +490,9 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     proxy,
   } = ctx;
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allow = effectiveAuthorizedFrom(config);
-  if (
-    !isAuthorizedSender(envelopeFrom, allow) &&
-    !isAuthorizedSender(headerFrom, allow)
-  ) {
+  // Envelope From only — MIME From is spoofable.
+  if (!isAuthorizedSender(envelopeFrom, allow)) {
     // Reject — do not open relay
     try {
       message.setReject?.(
@@ -507,7 +506,7 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  const actor = resolveInboundActor(config, envelopeFrom);
   if (!actor.ok) {
     try {
       message.setReject?.(`send-proxy: ${actor.error}`);
@@ -517,6 +516,20 @@ async function handleSendProxy(env, message, config, hooks, ctx) {
     const err = new Error("send_proxy_identity_unbound");
     err.retryable = false;
     throw err;
+  }
+
+  // Defense-in-depth: CF auth aligned to envelope identity only.
+  if (!cfAuthLooksPass(rawText, envelopeFrom)) {
+    if (!hooks.skipCfAuth) {
+      try {
+        message.setReject?.("send-proxy: missing CF auth pass");
+      } catch {
+        /* ignore */
+      }
+      const err = new Error("send_proxy_auth_failed");
+      err.retryable = false;
+      throw err;
+    }
   }
 
   const resolved = resolveMailFrom(config, proxy.fromEmail);
@@ -828,12 +841,9 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     replyTok,
   } = ctx;
 
-  const headerFrom = getHeader(rawText, "from") || envelopeFrom;
   const allow = effectiveAuthorizedFrom(config);
-  if (
-    !isAuthorizedSender(envelopeFrom, allow) &&
-    !isAuthorizedSender(headerFrom, allow)
-  ) {
+  // Envelope From only — MIME From is spoofable.
+  if (!isAuthorizedSender(envelopeFrom, allow)) {
     try {
       message.setReject?.("reply-token: sender not authorized");
     } catch {
@@ -844,7 +854,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  const actor = resolveInboundActor(config, envelopeFrom, headerFrom);
+  const actor = resolveInboundActor(config, envelopeFrom);
   if (!actor.ok) {
     try {
       message.setReject?.(`reply-token: ${actor.error}`);
@@ -856,7 +866,8 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
     throw err;
   }
 
-  if (!cfAuthLooksPass(rawText, headerFrom) && !cfAuthLooksPass(rawText, envelopeFrom)) {
+  // Defense-in-depth: CF auth aligned to envelope identity only.
+  if (!cfAuthLooksPass(rawText, envelopeFrom)) {
     // Fail closed unless hook overrides for tests
     if (!hooks.skipCfAuth) {
       try {

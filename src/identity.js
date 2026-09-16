@@ -274,18 +274,19 @@ export function resolveComposeCaller(config, gotBearer, composeApiToken) {
 }
 
 /**
- * Reply / send-proxy: resolve acting identity from envelope/header From.
+ * Reply / send-proxy: resolve acting identity from **envelope** From only.
+ * MIME header From is spoofable and must not select the actor.
  * If one Gmail is listed on multiple identities, merge can_send_as (multi-namespace).
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} envelopeFrom
+ * @param {string} [_headerFrom] ignored (kept for call-site compat)
  * @returns {{ ok: true, identity: object | null, legacy: boolean } | { ok: false, error: string }}
  */
-export function resolveInboundActor(config, envelopeFrom, headerFrom) {
+export function resolveInboundActor(config, envelopeFrom, _headerFrom) {
   if (!identitiesEnabled(config)) {
     return { ok: true, legacy: true, identity: null };
   }
-  const matched =
-    findIdentitiesByAuthorizedFrom(config, envelopeFrom).length > 0
-      ? findIdentitiesByAuthorizedFrom(config, envelopeFrom)
-      : findIdentitiesByAuthorizedFrom(config, headerFrom);
+  const matched = findIdentitiesByAuthorizedFrom(config, envelopeFrom);
   const a = mergeIdentities(matched);
   if (!a) {
     return {

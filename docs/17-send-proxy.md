@@ -35,7 +35,10 @@ Inside `{…}` use `_` = space (`__` = literal `_`).
 
 ## Auth
 
-- Sender ∈ `token_auth.authorized_from` / identities (else **default forward**, not open relay).  
+- **Envelope From** ∈ `token_auth.authorized_from` / identities (else **default forward**, not open relay). MIME `From` is **not** used for send-proxy allowlist.  
+- **CF Authentication-Results aligned pass on that same envelope identity** (shared `cfAuthLooksPass` with reply hop — Cloudflare authserv only; method=pass **and** domain alignment). Attacker envelope with real AR + spoofed allowlisted MIME From must **not** enter proxy.  
 - When identities are set, `alias@domain` must be in that identity’s `can_send_as` (else fail-closed ACL).  
 - `alias@domain` needs `domains.<domain>.send_as.enabled` + ESP-verified domain.  
 - Authorized success path is **proxy-only** (no dual-delivery to default_inbox).
+
+Do **not** treat raw MIME `From` matching the allowlist as proof of mailbox control. Envelope allowlist + CF auth on envelope are both required (or `hooks.skipCfAuth` in tests only).

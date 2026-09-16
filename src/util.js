@@ -52,27 +52,49 @@ export async function dedupeKeyHex(envelopeFrom, envelopeTo, messageId, rawSha25
 
 /**
  * Minimal header get (case-insensitive) from raw RFC822 text prefix.
+ * Last occurrence wins when the same name appears more than once.
  * @param {string} rawText
  * @param {string} name
  */
 export function getHeader(rawText, name) {
+  const all = getAllHeaders(rawText, name);
+  return all.length ? all[all.length - 1] : null;
+}
+
+/**
+ * All values for a header name (case-insensitive), in appearance order.
+ * Folded continuation lines are joined with a space.
+ * @param {string} rawText
+ * @param {string} name
+ * @returns {string[]}
+ */
+export function getAllHeaders(rawText, name) {
   const want = name.toLowerCase();
   const head = rawText.split(/\r?\n\r?\n/, 1)[0] || "";
   const lines = head.split(/\r?\n/);
   let cur = null;
-  const map = new Map();
+  let curVal = "";
+  const out = [];
+  const flush = () => {
+    if (cur === want && curVal !== "") out.push(curVal);
+  };
   for (const line of lines) {
     if (/^[ \t]/.test(line) && cur) {
-      map.set(cur, map.get(cur) + " " + line.trim());
+      curVal = curVal + " " + line.trim();
       continue;
     }
+    flush();
     const m = line.match(/^([^:]+):\s*(.*)$/);
     if (m) {
       cur = m[1].toLowerCase();
-      map.set(cur, m[2]);
+      curVal = m[2];
+    } else {
+      cur = null;
+      curVal = "";
     }
   }
-  return map.get(want) ?? null;
+  flush();
+  return out;
 }
 
 /**
