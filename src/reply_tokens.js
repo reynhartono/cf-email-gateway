@@ -61,38 +61,44 @@ export function formatTokenAddress(name, realEmail, tokenAddr) {
 
 /**
  * SMTP To/From style: "Name" <email>
+ *
+ * Angle-addr is **always** the trusted `email` argument (MAIL FROM / destination).
+ * Display may be a human name **or** an address-like string (email-as-display-name).
+ * Nested mailbox shapes in `name` (e.g. `CEO <ceo@other.com>`) never replace the
+ * trusted angle-addr — only the display-name portion is kept.
+ *
  * Never double-wrap "Name <email>" into "Name <email>" <email>.
  */
 export function formatSmtpMailbox(name, email) {
   const addr = String(email || "").trim();
   let n = String(name || "")
     .replace(/[\r\n]/g, "")
+    .replace(/"/g, "")
     .trim();
 
-  // Already a full mailbox: Name <addr> or "Name" <addr>
-  const full = n.match(/^"?([^"<>]*)"?\s*<\s*([^>]+@[^>]+)\s*>$/);
+  // Nested mailbox in display: keep display-name only, drop smuggled angle-addr.
+  //   "CEO <ceo@other.com>" → "CEO"
+  //   "<ceo@other.com>"     → ""
+  //   'CEO "x" <a@b>' already quote-stripped above
+  const full = n.match(/^([^<>]*?)\s*<\s*[^>]+@[^>]+\s*>\s*$/);
   if (full) {
-    const d = full[1].trim().replace(/"/g, "");
-    const e = full[2].trim();
-    if (d) return `"${d}" <${e}>`;
-    return e;
+    n = full[1].trim();
+  } else if (n.includes("<") || n.includes(">")) {
+    // Loose / partial angles: strip <…> segments so angle-addr cannot leak in.
+    n = n
+      .replace(/<[^>]*>/g, " ")
+      .replace(/[<>]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
-  // display_hint is literally the email
+  // No display, or display is literally the trusted address → bare addr
   if (!n || n.toLowerCase() === addr.toLowerCase()) {
     return addr;
   }
 
-  // "Name <email>" without proper parse (loose)
-  if (n.includes("<") && n.includes("@")) {
-    const cleaned = n.replace(/"/g, "").trim();
-    // if it already ends with > treat as complete
-    if (/>\s*$/.test(cleaned)) return cleaned;
-  }
-
-  const d = n.replace(/"/g, "").trim();
-  if (!d) return addr;
-  return `"${d}" <${addr}>`;
+  // Email-as-display-name (and any other label) is allowed; angle-addr stays trusted.
+  return `"${n}" <${addr}>`;
 }
 
 /**
