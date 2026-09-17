@@ -90,6 +90,9 @@ export function formatSmtpMailbox(name, email) {
     return addr;
   }
 
+  // RFC 5322 quoted-string: \ is escape — trailing \ would eat the closing ".
+  n = n.replace(/\\/g, "\\\\");
+
   // Quote entire display (may contain @ and <foreign@…>); angle-addr stays trusted.
   return `"${n}" <${addr}>`;
 }

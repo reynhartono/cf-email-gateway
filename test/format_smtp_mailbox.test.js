@@ -65,6 +65,22 @@ describe("formatSmtpMailbox trusted angle-addr", () => {
     );
   });
 
+  it("escapes backslash so trailing \\ cannot break the quoted-string", () => {
+    assert.equal(
+      formatSmtpMailbox("CEO\\", trusted),
+      `"CEO\\\\" <${trusted}>`,
+    );
+    assert.equal(
+      formatSmtpMailbox("a\\b\\", trusted),
+      `"a\\\\b\\\\" <${trusted}>`,
+    );
+    // nested foreign mailbox + trailing \ still keeps trusted angle-addr
+    assert.equal(
+      formatSmtpMailbox("CEO <ceo@other.com>\\", trusted),
+      `"CEO <ceo@other.com>\\\\" <${trusted}>`,
+    );
+  });
+
   it("send-proxy braces {CEO_<ceo@other.com>} → quoted nested display + gated From", () => {
     const p = parseSendProxyAddress(
       "shops{CEO_<ceo@other.com>}+alice=gmail.com@example.com",
