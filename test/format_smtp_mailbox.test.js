@@ -28,31 +28,33 @@ describe("formatSmtpMailbox trusted angle-addr", () => {
     );
   });
 
-  it("never takes angle-addr from nested Name <foreign> display", () => {
+  it("keeps nested Name <foreign> inside quotes; angle-addr stays trusted", () => {
     assert.equal(
       formatSmtpMailbox("CEO <ceo@other.com>", trusted),
-      `"CEO" <${trusted}>`,
+      `"CEO <ceo@other.com>" <${trusted}>`,
     );
     assert.equal(
       formatSmtpMailbox('"CEO" <ceo@other.com>', trusted),
-      `"CEO" <${trusted}>`,
+      `"CEO <ceo@other.com>" <${trusted}>`,
     );
     assert.equal(
       formatSmtpMailbox("CEO_ <ceo@other.com>", trusted),
-      `"CEO_" <${trusted}>`,
+      `"CEO_ <ceo@other.com>" <${trusted}>`,
     );
-    // empty display-name + nested mailbox → bare trusted
-    assert.equal(formatSmtpMailbox("<ceo@other.com>", trusted), trusted);
+    assert.equal(
+      formatSmtpMailbox("<ceo@other.com>", trusted),
+      `"<ceo@other.com>" <${trusted}>`,
+    );
   });
 
-  it("strips loose angle segments instead of emitting foreign mailbox", () => {
+  it("does not double-wrap when name already uses the trusted mailbox", () => {
     assert.equal(
-      formatSmtpMailbox("CEO <ceo@other.com> ", trusted),
-      `"CEO" <${trusted}>`,
+      formatSmtpMailbox(`Shop Support <${trusted}>`, trusted),
+      `"Shop Support" <${trusted}>`,
     );
     assert.equal(
-      formatSmtpMailbox("Label <not-an-email> tail", trusted),
-      `"Label tail" <${trusted}>`,
+      formatSmtpMailbox(`"Shop Support" <${trusted}>`, trusted),
+      `"Shop Support" <${trusted}>`,
     );
   });
 
@@ -63,7 +65,7 @@ describe("formatSmtpMailbox trusted angle-addr", () => {
     );
   });
 
-  it("send-proxy braces that smuggle Name <foreign> keep gated From", () => {
+  it("send-proxy braces {CEO_<ceo@other.com>} → quoted nested display + gated From", () => {
     const p = parseSendProxyAddress(
       "shops{CEO_<ceo@other.com>}+alice=gmail.com@example.com",
     );
@@ -73,7 +75,7 @@ describe("formatSmtpMailbox trusted angle-addr", () => {
     assert.equal(p.aliasDisplay, "CEO <ceo@other.com>");
     assert.equal(
       formatSmtpMailbox(p.aliasDisplay, p.fromEmail),
-      `"CEO" <shops@example.com>`,
+      `"CEO <ceo@other.com>" <shops@example.com>`,
     );
   });
 

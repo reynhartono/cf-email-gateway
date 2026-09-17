@@ -63,11 +63,14 @@ export function formatTokenAddress(name, realEmail, tokenAddr) {
  * SMTP To/From style: "Name" <email>
  *
  * Angle-addr is **always** the trusted `email` argument (MAIL FROM / destination).
- * Display may be a human name **or** an address-like string (email-as-display-name).
- * Nested mailbox shapes in `name` (e.g. `CEO <ceo@other.com>`) never replace the
- * trusted angle-addr — only the display-name portion is kept.
+ * Display may be a human name, an address-like string (email-as-display-name), or even
+ * a nested mailbox shape kept **inside the quotes** as presentation only, e.g.
+ *   name = `CEO <ceo@other.com>`, email = shops@example.com
+ *   → `"CEO <ceo@other.com>" <shops@example.com>`
+ * The nested address never becomes the real mailbox.
  *
- * Never double-wrap "Name <email>" into "Name <email>" <email>.
+ * If `name` is already `… <trusted>` for this same trusted addr, unwrap the display
+ * portion so we do not double-wrap `"Name" <trusted> <trusted>`.
  */
 export function formatSmtpMailbox(name, email) {
   const addr = String(email || "").trim();
@@ -76,20 +79,10 @@ export function formatSmtpMailbox(name, email) {
     .replace(/"/g, "")
     .trim();
 
-  // Nested mailbox in display: keep display-name only, drop smuggled angle-addr.
-  //   "CEO <ceo@other.com>" → "CEO"
-  //   "<ceo@other.com>"     → ""
-  //   'CEO "x" <a@b>' already quote-stripped above
-  const full = n.match(/^([^<>]*?)\s*<\s*[^>]+@[^>]+\s*>\s*$/);
-  if (full) {
+  // Already formatted with this trusted mailbox → keep display-name only, re-emit once.
+  const full = n.match(/^([^<>]*?)\s*<\s*([^>]+)\s*>\s*$/);
+  if (full && full[2].trim().toLowerCase() === addr.toLowerCase()) {
     n = full[1].trim();
-  } else if (n.includes("<") || n.includes(">")) {
-    // Loose / partial angles: strip <…> segments so angle-addr cannot leak in.
-    n = n
-      .replace(/<[^>]*>/g, " ")
-      .replace(/[<>]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
   }
 
   // No display, or display is literally the trusted address → bare addr
@@ -97,7 +90,7 @@ export function formatSmtpMailbox(name, email) {
     return addr;
   }
 
-  // Email-as-display-name (and any other label) is allowed; angle-addr stays trusted.
+  // Quote entire display (may contain @ and <foreign@…>); angle-addr stays trusted.
   return `"${n}" <${addr}>`;
 }
 
