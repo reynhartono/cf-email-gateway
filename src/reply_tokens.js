@@ -61,38 +61,40 @@ export function formatTokenAddress(name, realEmail, tokenAddr) {
 
 /**
  * SMTP To/From style: "Name" <email>
- * Never double-wrap "Name <email>" into "Name <email>" <email>.
+ *
+ * Angle-addr is **always** the trusted `email` argument (MAIL FROM / destination).
+ * Display may be a human name, an address-like string (email-as-display-name), or even
+ * a nested mailbox shape kept **inside the quotes** as presentation only, e.g.
+ *   name = `CEO <ceo@other.com>`, email = shops@example.com
+ *   → `"CEO <ceo@other.com>" <shops@example.com>`
+ * The nested address never becomes the real mailbox.
+ *
+ * If `name` is already `… <trusted>` for this same trusted addr, unwrap the display
+ * portion so we do not double-wrap `"Name" <trusted> <trusted>`.
  */
 export function formatSmtpMailbox(name, email) {
   const addr = String(email || "").trim();
   let n = String(name || "")
     .replace(/[\r\n]/g, "")
+    .replace(/"/g, "")
     .trim();
 
-  // Already a full mailbox: Name <addr> or "Name" <addr>
-  const full = n.match(/^"?([^"<>]*)"?\s*<\s*([^>]+@[^>]+)\s*>$/);
-  if (full) {
-    const d = full[1].trim().replace(/"/g, "");
-    const e = full[2].trim();
-    if (d) return `"${d}" <${e}>`;
-    return e;
+  // Already formatted with this trusted mailbox → keep display-name only, re-emit once.
+  const full = n.match(/^([^<>]*?)\s*<\s*([^>]+)\s*>\s*$/);
+  if (full && full[2].trim().toLowerCase() === addr.toLowerCase()) {
+    n = full[1].trim();
   }
 
-  // display_hint is literally the email
+  // No display, or display is literally the trusted address → bare addr
   if (!n || n.toLowerCase() === addr.toLowerCase()) {
     return addr;
   }
 
-  // "Name <email>" without proper parse (loose)
-  if (n.includes("<") && n.includes("@")) {
-    const cleaned = n.replace(/"/g, "").trim();
-    // if it already ends with > treat as complete
-    if (/>\s*$/.test(cleaned)) return cleaned;
-  }
+  // RFC 5322 quoted-string: \ is escape — trailing \ would eat the closing ".
+  n = n.replace(/\\/g, "\\\\");
 
-  const d = n.replace(/"/g, "").trim();
-  if (!d) return addr;
-  return `"${d}" <${addr}>`;
+  // Quote entire display (may contain @ and <foreign@…>); angle-addr stays trusted.
+  return `"${n}" <${addr}>`;
 }
 
 /**
