@@ -34,7 +34,7 @@
    else → stay on default route (log *_unauthorized_fallback if shape matched)
 6. Default route:
      6a. no destinations → ingested_only
-     6b. else ensureTargets + mint X-CFEG (if wanted) + cf_forward
+     6b. else ensureTargets + mint X-CFEG once per inbound (reuse on dedupe) + cf_forward
         match tiers for destinations:
           address → local_part_prefix → catch_all → default_inbox
 ```

@@ -33,7 +33,7 @@ One row when attempt **finishes**. Unique `(delivery_target_id, attempt_number)`
 
 ### `reply_routes` / `reply_participants` (Phase 2b)
 
-Token PK; authorized_from; participants with `in_primary` / `in_all` / `local_suffix` (pN).
+Token PK; `inbound_id` indexed (Q43: **one product token per inbound** — reuse on dedupe, do not mint another). Participants with `in_primary` / `in_all` / `local_suffix` (pN).
 
 ### Optional
 

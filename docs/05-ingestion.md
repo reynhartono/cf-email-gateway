@@ -10,7 +10,7 @@ raw buffer → detect shapes → destinations → insert → archive?
 3. `resolveDestinations` + `resolve_driver` → almost always `cf_forward`.  
 4. **Insert inbound always**; archive (if on) same run even if R2 fails.  
 5. **Default = forward.** Exception only if pattern ∧ authorized ∧ identity-bound → hop/proxy SMTP.  
-6. Else mint forward token; attach X-CFEG on each cf_forward; deliver pending targets.  
+6. Else mint forward token **if this inbound has none**; else reuse; attach X-CFEG on each pending `cf_forward`.  
 7. SUCCESS iff archive_ok (if required) ∧ all dests succeeded; else THROW retryable.
 
 | Path | When | Driver |
