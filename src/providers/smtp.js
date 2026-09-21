@@ -44,7 +44,9 @@ export async function smtpSend(env, req) {
     };
   }
 
-  const port = Number(env.SMTP_PORT || 465);
+  const rawPort = env.SMTP_PORT ?? 465;
+  const port =
+    rawPort === "" ? 465 : Number(rawPort);
   const tls = resolveSmtpSecureTransport(env, port);
   if (!tls.ok) {
     return { ok: false, error: tls.error };
@@ -258,14 +260,16 @@ const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
  * override allows a rare port when the operator opts in.
  *
  * @param {object} env
- * @param {number} port
+ * @param {number} port — must be the parsed SMTP port
+ *   (`Number(env.SMTP_PORT ?? 465)`); callers must not pass a value derived
+ *   any other way, since the invalid-port error echoes `env.SMTP_PORT`.
  * @returns {{ ok: true, secureTransport: "on"|"starttls" } | { ok: false, error: string }}
  */
 export function resolveSmtpSecureTransport(env, port) {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     return {
       ok: false,
-      error: `refusing plaintext SMTP: invalid SMTP_PORT "${env?.SMTP_PORT}" (expected a known TLS port or explicit SMTP_TLS="on"|"starttls")`,
+      error: `refusing plaintext SMTP: invalid SMTP_PORT "${env?.SMTP_PORT ?? port}" (parsed port: ${port}; expected a known TLS port or explicit SMTP_TLS="on"|"starttls")`,
     };
   }
   const override = String(env?.SMTP_TLS || "")

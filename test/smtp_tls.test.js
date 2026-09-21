@@ -37,6 +37,45 @@ describe("resolveSmtpSecureTransport", () => {
     }
   });
 
+  it("maps the remaining known ports", () => {
+    for (const port of [8465, 443]) {
+      assert.deepStrictEqual(resolveSmtpSecureTransport({}, port), {
+        ok: true,
+        secureTransport: "on",
+      });
+    }
+    for (const port of [2525, 8025]) {
+      assert.deepStrictEqual(resolveSmtpSecureTransport({}, port), {
+        ok: true,
+        secureTransport: "starttls",
+      });
+    }
+  });
+
+  it("fails closed on out-of-range / non-integer ports", () => {
+    for (const [raw, port] of [
+      ["0", 0],
+      ["65536", 65536],
+      ["-1", -1],
+      ["465.5", 465.5],
+    ]) {
+      const r = resolveSmtpSecureTransport({ SMTP_PORT: raw }, port);
+      assert.equal(r.ok, false, `port ${raw} should fail closed`);
+      assert.match(r.error, /invalid SMTP_PORT/);
+    }
+  });
+
+  it("accepts case/whitespace variants of SMTP_TLS", () => {
+    assert.deepStrictEqual(
+      resolveSmtpSecureTransport({ SMTP_TLS: " ON " }, 2465),
+      { ok: true, secureTransport: "on" },
+    );
+    assert.deepStrictEqual(
+      resolveSmtpSecureTransport({ SMTP_TLS: "STARTTLS" }, 80),
+      { ok: true, secureTransport: "starttls" },
+    );
+  });
+
   it("fails closed on non-numeric ports", () => {
     const r = resolveSmtpSecureTransport({ SMTP_PORT: "abc" }, NaN);
     assert.equal(r.ok, false);
@@ -91,6 +130,12 @@ describe("smtpSend TLS fail-closed", () => {
 
   it("returns ok:false on non-numeric port without connecting", async () => {
     const res = await smtpSend({ ...BASE_ENV, SMTP_PORT: "abc" }, REQ);
+    assert.equal(res.ok, false);
+    assert.match(res.error, /invalid SMTP_PORT/);
+  });
+
+  it("treats numeric 0 as a port, not as unset (fails closed)", async () => {
+    const res = await smtpSend({ ...BASE_ENV, SMTP_PORT: 0 }, REQ);
     assert.equal(res.ok, false);
     assert.match(res.error, /invalid SMTP_PORT/);
   });
