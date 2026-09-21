@@ -257,8 +257,8 @@ const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
 /**
  * Derive the SMTP EHLO hostname from the envelope MAIL FROM domain.
  *
- * MAIL FROM is required by the time we reach EHLO, so no env override:
- * the sending domain is always available. Fail-closed: single-label names
+ * req.mailFrom is available before connect, so no env override:
+ * the sending domain is always at hand. Fail-closed: single-label names
  * (`localhost`), bare IPs, and malformed domains return ok:false instead
  * of falling back to a default host.
  *
