@@ -465,6 +465,10 @@ function evaluateProxyException(config, hooks, ctx) {
  * Token is bound to its mint-time apex: the envelope recipient domain must
  * equal route.our_domain. Prevents a token minted for shops@example.com
  * from hopping as r+TOKEN@other.example on a shared Worker/D1.
+ *
+ * The trim is load-bearing for rows minted before mint-time normalization
+ * (lowercase-only our_domain) — it lets those legacy rows keep hopping
+ * without a backfill migration. Do not simplify it away.
  */
 function replyTokenDomainMatches(route, replyTok) {
   const stored = String(route?.our_domain || "").trim().toLowerCase();
