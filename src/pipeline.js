@@ -833,7 +833,12 @@ async function loadForwardTokenMeta(env, inboundId) {
  * Create reply_routes row + participants for X-CFEG forward headers / later r+ hop.
  */
 async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domain, rawText }) {
-  const ourDomain = domain || recipientDomain(envelopeTo);
+  // Normalize at the write site: D1 must hold clean apex/mailbox values so
+  // readers never depend on producer hygiene (helper stays belt-and-braces).
+  const ourDomain = String(domain || recipientDomain(envelopeTo) || "")
+    .trim()
+    .toLowerCase();
+  const ourMailbox = String(envelopeTo || "").trim().toLowerCase();
   // Only exclude *our* destinations / operator inbox — NOT authorized_from
   // (authorized_from are external senders who use the gateway; they ARE reply peers)
   const exclude = [config.default_inbox].filter(Boolean);
@@ -861,7 +866,7 @@ async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domai
     token,
     inbound_id: inboundId,
     our_domain: ourDomain,
-    our_mailbox: String(envelopeTo || "").toLowerCase(),
+    our_mailbox: ourMailbox,
     created_at: Date.now(),
     multiparty,
     subject: getHeader(rawText, "subject") || "",
@@ -892,7 +897,7 @@ async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domai
   return {
     token,
     ourDomain,
-    ourMailbox: String(envelopeTo || "").toLowerCase(),
+    ourMailbox,
     primary,
     others,
     multiparty,
