@@ -262,11 +262,17 @@ const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
  * @returns {{ ok: true, secureTransport: "on"|"starttls" } | { ok: false, error: string }}
  */
 export function resolveSmtpSecureTransport(env, port) {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return {
+      ok: false,
+      error: `refusing plaintext SMTP: invalid SMTP_PORT "${env?.SMTP_PORT}" (expected a known TLS port or explicit SMTP_TLS="on"|"starttls")`,
+    };
+  }
   const override = String(env?.SMTP_TLS || "")
     .trim()
     .toLowerCase();
   if (override) {
-    if (override === "on" || override === "implicit" || override === "implicit-tls") {
+    if (override === "on") {
       return { ok: true, secureTransport: "on" };
     }
     if (override === "starttls") {
@@ -277,12 +283,6 @@ export function resolveSmtpSecureTransport(env, port) {
       error: `unknown SMTP_TLS value "${env.SMTP_TLS}" (expected "on" or "starttls")`,
     };
   }
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    return {
-      ok: false,
-      error: `refusing plaintext SMTP: invalid SMTP_PORT "${env?.SMTP_PORT}" (expected a known TLS port or explicit SMTP_TLS="on"|"starttls")`,
-    };
-  }
   if (SMTP_IMPLICIT_TLS_PORTS.has(port)) {
     return { ok: true, secureTransport: "on" };
   }
@@ -291,7 +291,7 @@ export function resolveSmtpSecureTransport(env, port) {
   }
   return {
     ok: false,
-    error: `refusing plaintext SMTP: unknown SMTP_PORT "${port}" (expected 465/587 or explicit SMTP_TLS="on"|"starttls")`,
+    error: `refusing plaintext SMTP: unknown SMTP_PORT "${port}" (expected 465/8465/443/587/2525/8025 or explicit SMTP_TLS="on"|"starttls")`,
   };
 }
 
