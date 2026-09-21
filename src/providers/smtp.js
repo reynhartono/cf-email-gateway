@@ -7,9 +7,14 @@
  * Optional:
  *   SMTP_HOST   (default mail.smtp2go.com — set explicitly for your ESP)
  *   SMTP_PORT   (default 465 = implicit TLS)
+ *   SMTP_TLS    (optional explicit override: "on" | "starttls" for rare ports)
  *   SMTP_TIMEOUT_MS (default 20000)
  *
- * CF: connect(address, { secureTransport: "on"|"starttls"|"off" })
+ * TLS is fail-closed: ports outside the known implicit-TLS / STARTTLS lists
+ * return ok:false instead of connecting in plaintext. Port 80 is not a
+ * default mail path — it requires an explicit SMTP_TLS override.
+ *
+ * CF: connect(address, { secureTransport: "on"|"starttls" })
  */
 
 /**
@@ -40,12 +45,11 @@ export async function smtpSend(env, req) {
   }
 
   const port = Number(env.SMTP_PORT || 465);
-  const secureTransport =
-    port === 465 || port === 8465 || port === 443
-      ? "on"
-      : port === 587 || port === 2525 || port === 8025 || port === 80
-        ? "starttls"
-        : "off";
+  const tls = resolveSmtpSecureTransport(env, port);
+  if (!tls.ok) {
+    return { ok: false, error: tls.error };
+  }
+  const secureTransport = tls.secureTransport;
 
   const mailFrom = bareEmail(req.mailFrom);
   const rcpts = (Array.isArray(req.to) ? req.to : [req.to])
@@ -240,6 +244,55 @@ export async function smtpSend(env, req) {
       /* ignore */
     }
   }
+}
+
+const SMTP_IMPLICIT_TLS_PORTS = new Set([465, 8465, 443]);
+const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
+
+/**
+ * Fail-closed TLS mapping for outbound SMTP.
+ *
+ * Known implicit-TLS ports → "on"; known submission ports → "starttls".
+ * Anything else (including port 80 and non-numeric ports) returns ok:false
+ * instead of falling back to plaintext. An explicit SMTP_TLS="on"|"starttls"
+ * override allows a rare port when the operator opts in.
+ *
+ * @param {object} env
+ * @param {number} port
+ * @returns {{ ok: true, secureTransport: "on"|"starttls" } | { ok: false, error: string }}
+ */
+export function resolveSmtpSecureTransport(env, port) {
+  const override = String(env?.SMTP_TLS || "")
+    .trim()
+    .toLowerCase();
+  if (override) {
+    if (override === "on" || override === "implicit" || override === "implicit-tls") {
+      return { ok: true, secureTransport: "on" };
+    }
+    if (override === "starttls") {
+      return { ok: true, secureTransport: "starttls" };
+    }
+    return {
+      ok: false,
+      error: `unknown SMTP_TLS value "${env.SMTP_TLS}" (expected "on" or "starttls")`,
+    };
+  }
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return {
+      ok: false,
+      error: `refusing plaintext SMTP: invalid SMTP_PORT "${env?.SMTP_PORT}" (expected a known TLS port or explicit SMTP_TLS="on"|"starttls")`,
+    };
+  }
+  if (SMTP_IMPLICIT_TLS_PORTS.has(port)) {
+    return { ok: true, secureTransport: "on" };
+  }
+  if (SMTP_STARTTLS_PORTS.has(port)) {
+    return { ok: true, secureTransport: "starttls" };
+  }
+  return {
+    ok: false,
+    error: `refusing plaintext SMTP: unknown SMTP_PORT "${port}" (expected 465/587 or explicit SMTP_TLS="on"|"starttls")`,
+  };
 }
 
 function bareEmail(v) {
