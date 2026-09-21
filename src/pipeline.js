@@ -204,6 +204,8 @@ export async function handleInbound(env, message, config, hooks = {}) {
 
   // Mint reply token only on send_as-enabled apexes (not archive-only zones).
   // Dedupe/retry: reuse the existing inbound_id route — do not mint another.
+  // Note: an empty apex mints only when defaults.send_as.enabled is true;
+  // such a row can never hop — the apex gate stays fail-closed.
   let forwardTokenMeta = null;
   const wantTokens = replyTokensWanted(config, envelopeTo);
   if (wantTokens) {
