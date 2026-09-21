@@ -47,6 +47,24 @@ describe("resolveSmtpEhloDomain", () => {
     }
   });
 
+  it("fails closed on overlong labels, trailing dots, and unicode", () => {
+    for (const from of [
+      `app@${"a".repeat(64)}.example.com`,
+      "app@example.com.",
+      "app@münchen.example.com",
+      "app@under_score.example.com",
+    ]) {
+      const r = resolveSmtpEhloDomain(from);
+      assert.equal(r.ok, false, `${from.slice(0, 30)} should fail closed`);
+      assert.match(r.error, /invalid EHLO domain/);
+    }
+    // 63-char labels are still fine.
+    assert.deepStrictEqual(
+      resolveSmtpEhloDomain(`app@${"a".repeat(63)}.example.com`),
+      { ok: true, ehlo: `${"a".repeat(63)}.example.com` },
+    );
+  });
+
   it("keeps the error single-line on control-character input", () => {
     const r = resolveSmtpEhloDomain("foo\r\nBAR");
     assert.equal(r.ok, false);

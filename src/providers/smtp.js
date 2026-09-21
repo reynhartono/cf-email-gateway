@@ -282,11 +282,15 @@ export function resolveSmtpEhloDomain(mailFrom) {
 
 /**
  * Strict FQDN check for EHLO: dot-required (rejects `localhost` and other
- * single-label names), valid hostname labels, and a non-numeric TLD
- * (rejects bare IPs, which belong in `[...]` literals, not EHLO).
+ * single-label names), valid hostname labels capped at 63 chars each,
+ * and a non-numeric TLD (rejects bare IPs, which belong in `[...]`
+ * literals, not EHLO).
  */
 function isValidEhloDomain(domain) {
   if (!/^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+    return false;
+  }
+  if (!domain.split(".").every((label) => label.length <= 63)) {
     return false;
   }
   const tld = domain.slice(domain.lastIndexOf(".") + 1);
