@@ -382,6 +382,29 @@ describe("reply_tokens", () => {
     ].join("\r\n");
     assert.equal(cfAuthLooksPass(gmailSubdomain, "me@gmail.com"), true);
 
+    // temperror / permerror veto just like fail/none/softfail (any non-pass)
+    const passPlusTemperror = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=temperror header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(
+      cfAuthLooksPass(passPlusTemperror, "bob@corp.example"),
+      false,
+    );
+    const passPlusPermerror = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=permerror header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(
+      cfAuthLooksPass(passPlusPermerror, "bob@corp.example"),
+      false,
+    );
     // Parent-domain-aligned but non-googleish line neither passes nor vetoes
     // a good Gmail pass (e.g. header.d=com aligns via parent rule).
     const gmailPassPlusComLine = [
