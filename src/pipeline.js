@@ -46,7 +46,11 @@ import {
   formatSmtpMailbox,
 } from "./reply_tokens.js";
 import { rebuildOutboundMime, subjectFromRaw } from "./mime_rebuild.js";
-import { logger } from "./log.js";
+import {
+  logger,
+  redactReplyTokenAddressForLog,
+  replyTokenLogFields,
+} from "./log.js";
 
 /**
  * @param {object} env
@@ -71,7 +75,7 @@ export async function handleInbound(env, message, config, hooks = {}) {
   logger.info("inbound.start", {
     invocationId,
     envelopeFrom,
-    envelopeTo,
+    envelopeTo: redactReplyTokenAddressForLog(envelopeTo),
     domain,
     subject: subjectHdr?.slice(0, 80),
     rawSize: rawBytes.byteLength,
@@ -208,8 +212,10 @@ export async function handleInbound(env, message, config, hooks = {}) {
       if (forwardTokenMeta) {
         logger.info("forward.token_reuse", {
           invocationId,
-          token: forwardTokenMeta.token,
-          replyTo: `r+${forwardTokenMeta.token}@${forwardTokenMeta.ourDomain}`,
+          ...(await replyTokenLogFields(
+            forwardTokenMeta.token,
+            forwardTokenMeta.ourDomain,
+          )),
         });
       } else {
         forwardTokenMeta = await mintForwardReplyToken(env, config, {
@@ -220,10 +226,12 @@ export async function handleInbound(env, message, config, hooks = {}) {
         });
         logger.info("forward.token", {
           invocationId,
-          token: forwardTokenMeta?.token,
-          replyTo: forwardTokenMeta
-            ? `r+${forwardTokenMeta.token}@${forwardTokenMeta.ourDomain}`
-            : null,
+          ...(forwardTokenMeta
+            ? await replyTokenLogFields(
+                forwardTokenMeta.token,
+                forwardTokenMeta.ourDomain,
+              )
+            : {}),
         });
       }
     } catch (e) {
@@ -361,8 +369,8 @@ async function tryDeliveryException(env, message, config, hooks, ctx) {
       logger.info("inbound.route", {
         invocationId,
         kind: "reply_token",
-        token: replyTok.token,
         suffix: replyTok.suffix,
+        ...(await replyTokenLogFields(replyTok.token, replyTok.ourDomain)),
       });
       return handleReplyHop(env, message, config, hooks, {
         invocationId,
@@ -381,7 +389,7 @@ async function tryDeliveryException(env, message, config, hooks, ctx) {
     logger.warn("reply_token.exception_skipped", {
       invocationId,
       envelopeFrom,
-      envelopeTo,
+      envelopeTo: redactReplyTokenAddressForLog(envelopeTo),
       reason: hop.reason,
     });
   }
