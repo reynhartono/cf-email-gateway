@@ -476,6 +476,15 @@ async function evaluateReplyException(env, config, hooks, ctx) {
   const route = await db.getReplyRoute(env.DB, replyTok.token);
   if (!route) return { ok: false, reason: "token_unknown" };
 
+  // Bind token to mint-time apex: r+TOKEN@other.example must not load a
+  // route minted for shops@example.com on a shared Worker/D1.
+  if (
+    String(route.our_domain || "").toLowerCase() !==
+    String(replyTok.ourDomain || "").toLowerCase()
+  ) {
+    return { ok: false, reason: "token_domain_mismatch" };
+  }
+
   if (!actor.legacy) {
     const hopMailbox = (
       route.our_mailbox ||
@@ -949,6 +958,22 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
       /* */
     }
     const err = new Error("reply_token_unknown");
+    err.retryable = false;
+    throw err;
+  }
+
+  // Defense-in-depth: same apex bind as evaluateReplyException, in case this
+  // handler is ever reached without the outer gate.
+  if (
+    String(route.our_domain || "").toLowerCase() !==
+    String(replyTok.ourDomain || "").toLowerCase()
+  ) {
+    try {
+      message.setReject?.("reply-token: domain mismatch");
+    } catch {
+      /* */
+    }
+    const err = new Error("reply_token_domain_mismatch");
     err.retryable = false;
     throw err;
   }
