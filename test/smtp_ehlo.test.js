@@ -63,4 +63,18 @@ describe("smtpSend EHLO fail-closed", () => {
     assert.equal(res.ok, false);
     assert.match(res.error, /invalid EHLO domain/);
   });
+
+  it("reports missing body before invalid EHLO domain", async () => {
+    const env = {
+      SMTP_HOST: "mail.example.com",
+      SMTP_USERNAME: "smtp-user",
+      SMTP_PASSWORD: "smtp-pass",
+    };
+    const res = await smtpSend(env, {
+      mailFrom: "app@localhost",
+      to: "me@gmail.com",
+    });
+    assert.equal(res.ok, false);
+    assert.match(res.error, /smtp mimeText required/);
+  });
 });

@@ -58,14 +58,14 @@ export async function smtpSend(env, req) {
   if (!mailFrom || !rcpts.length) {
     return { ok: false, error: "smtp mailFrom/to required" };
   }
+  if (!req.mimeText) {
+    return { ok: false, error: "smtp mimeText required" };
+  }
   const ehlo = resolveSmtpEhloDomain(mailFrom);
   if (!ehlo.ok) {
     return { ok: false, error: ehlo.error };
   }
   const ehloHost = ehlo.ehlo;
-  if (!req.mimeText) {
-    return { ok: false, error: "smtp mimeText required" };
-  }
 
   let connect;
   try {
