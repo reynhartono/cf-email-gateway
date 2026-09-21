@@ -214,4 +214,57 @@ describe("reply token apex bind (issue #24)", () => {
     assert.ok(skipped, "expected reply_token.exception_skipped log");
     assert.equal(skipped.reason, "token_domain_mismatch");
   });
+
+  it("skips the hop when the stored route has an empty domain", async () => {
+    // Fail-closed branch: "" must never equal "" at the gate. Both sides
+    // are empty here (degenerate stored row + bare r+TOKEN@ envelope), so
+    // without the guard the comparison would pass and the hop would run.
+    // Seeded directly — mint always sets a domain, so this path is only
+    // reachable from degenerate stored data.
+    const DB = createMemoryDb();
+    const { insertReplyRoute, insertReplyParticipant } = await import(
+      "../src/db.js"
+    );
+    const emptyToken = "tokemptyguard1";
+    await insertReplyRoute(DB, {
+      token: emptyToken,
+      inbound_id: "inb-empty-guard",
+      our_domain: "",
+      our_mailbox: "shops@example.com",
+      created_at: Date.now(),
+      multiparty: false,
+      subject: "Order",
+    });
+    await insertReplyParticipant(DB, {
+      id: "p-empty-guard",
+      token: emptyToken,
+      email: "alice@a.com",
+      display_hint: "Alice",
+      role: "primary",
+      local_suffix: null,
+      in_primary: true,
+      in_all: true,
+    });
+    const config = gatewayConfig();
+    const msg = hopMessage(`r+${emptyToken}@`, "<hop-empty-guard@t>");
+
+    let forwarded = null;
+    let smtpCalled = false;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      skipCfAuth: true,
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async (_env, _message, t) => {
+        forwarded = t.destination;
+        return { ok: true };
+      },
+      smtpSend: async () => {
+        smtpCalled = true;
+        return { ok: true };
+      },
+    });
+
+    assert.equal(res.status, "completed");
+    assert.equal(forwarded, "me@gmail.com");
+    assert.equal(smtpCalled, false);
+  });
 });
