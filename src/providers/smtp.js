@@ -146,7 +146,8 @@ export async function smtpSend(env, req) {
     let r = await readResponse();
     if (r.code !== 220) throw new Error(`banner ${r.full}`);
 
-    r = await cmd("EHLO cf-email-gateway.workers.dev");
+    const ehloHost = resolveSmtpEhloDomain(mailFrom);
+    r = await cmd(`EHLO ${ehloHost}`);
     if (r.code !== 250) throw new Error(`EHLO ${r.full}`);
 
     if (secureTransport === "starttls") {
@@ -172,7 +173,7 @@ export async function smtpSend(env, req) {
       reader = socket.readable.getReader();
       writer = socket.writable.getWriter();
       buf = "";
-      r = await cmd("EHLO cf-email-gateway.workers.dev");
+      r = await cmd(`EHLO ${ehloHost}`);
       if (r.code !== 250) throw new Error(`EHLO after TLS ${r.full}`);
     }
 
@@ -248,6 +249,28 @@ export async function smtpSend(env, req) {
 
 const SMTP_IMPLICIT_TLS_PORTS = new Set([465, 8465, 443]);
 const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
+
+const DEFAULT_SMTP_EHLO_DOMAIN = "cf-email-gateway.workers.dev";
+
+/**
+ * Derive the SMTP EHLO hostname from the envelope MAIL FROM domain.
+ *
+ * MAIL FROM is required by the time we reach EHLO, so no env override:
+ * the sending domain is always available. Falls back to the Worker host
+ * only when the address has no usable domain part.
+ *
+ * @param {string} mailFrom — already-normalized envelope sender
+ * @returns {string}
+ */
+export function resolveSmtpEhloDomain(mailFrom) {
+  const addr = bareEmail(mailFrom);
+  const at = addr.lastIndexOf("@");
+  const domain = at > 0 ? addr.slice(at + 1).toLowerCase() : "";
+  if (/^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+    return domain;
+  }
+  return DEFAULT_SMTP_EHLO_DOMAIN;
+}
 
 /**
  * Parse the configured SMTP port. Unset (`undefined`/`null`) or blank
