@@ -338,5 +338,48 @@ describe("reply_tokens", () => {
       "x",
     ].join("\r\n");
     assert.equal(cfAuthLooksPass(arcPassPlusArFail, "bob@corp.example"), false);
+
+    // softfail for the identity vetoes just like fail/none (docs behavior)
+    const passPlusSoftfail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=softfail header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passPlusSoftfail, "bob@corp.example"), false);
+
+    // dmarc-only multi-line: dmarc pass + dmarc fail → fails closed
+    const dmarcPassPlusDmarcFail = [
+      "Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dmarc=fail header.from=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(
+      cfAuthLooksPass(dmarcPassPlusDmarcFail, "bob@corp.example"),
+      false,
+    );
+
+    // 3 lines: pass + unrelated + fail → unrelated ignored, fail still vetoes
+    const passUnrelatedFail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=other.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passUnrelatedFail, "me@gmail.com"), false);
+
+    // Gmail subdomain signatures count as google ecosystem (no false veto)
+    const gmailSubdomain = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=sub.gmail.com header.i=@sub.gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(gmailSubdomain, "me@gmail.com"), true);
   });
 });

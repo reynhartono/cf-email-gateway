@@ -511,10 +511,15 @@ export function cfAuthLooksPass(rawText, fromEmail) {
       if (result !== "pass") continue;
 
       if (isGmailFrom) {
-        // Narrow Gmail acceptance: aligned domain must be google ecosystem,
+        // Narrow Gmail acceptance: aligned domain must be google ecosystem
+        // (apex or subdomain, matching the relaxed alignment doctrine),
         // or authserv-id must look like Google/CF evaluating Gmail.
+        // Intentional fail-closed: a CF-looking line that evaluates the Gmail
+        // identity without such a pass vetoes the whole result instead of
+        // being skipped — a crafted client line cannot override the
+        // receiving ADMD (issue #22 follow-up).
         const googleish =
-          /^(gmail\.com|google\.com|googlemail\.com)$/.test(authDom) ||
+          /(^|\.)(gmail\.com|google\.com|googlemail\.com)$/i.test(authDom) ||
           /gmail\.com|google\.com|googlemail\.com/i.test(authservId);
         if (!googleish) continue;
       }
