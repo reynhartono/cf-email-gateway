@@ -467,10 +467,11 @@ function evaluateProxyException(config, hooks, ctx) {
  * from hopping as r+TOKEN@other.example on a shared Worker/D1.
  */
 function replyTokenDomainMatches(route, replyTok) {
-  return (
-    String(route?.our_domain || "").trim().toLowerCase() ===
-    String(replyTok?.ourDomain || "").trim().toLowerCase()
-  );
+  const stored = String(route?.our_domain || "").trim().toLowerCase();
+  const presented = String(replyTok?.ourDomain || "").trim().toLowerCase();
+  // Fail closed: never treat two empty sides as a match.
+  if (!stored || !presented) return false;
+  return stored === presented;
 }
 
 /**
