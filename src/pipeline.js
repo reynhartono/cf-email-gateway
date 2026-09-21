@@ -836,9 +836,11 @@ async function loadForwardTokenMeta(env, inboundId) {
 async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domain, rawText }) {
   // Normalize at the write site: D1 must hold clean apex/mailbox values so
   // readers never depend on producer hygiene (helper stays belt-and-braces).
-  const ourDomain = String(domain || recipientDomain(envelopeTo) || "")
-    .trim()
-    .toLowerCase();
+  // Trim before the truthiness check so a whitespace-only domain falls back
+  // to recipientDomain instead of trimming down to "".
+  const ourDomain =
+    String(domain || "").trim().toLowerCase() ||
+    String(recipientDomain(envelopeTo) || "").trim().toLowerCase();
   const ourMailbox = String(envelopeTo || "").trim().toLowerCase();
   // Only exclude *our* destinations / operator inbox — NOT authorized_from
   // (authorized_from are external senders who use the gateway; they ARE reply peers)
