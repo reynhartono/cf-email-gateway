@@ -46,6 +46,13 @@ describe("resolveSmtpEhloDomain", () => {
       assert.match(r.error, /invalid EHLO domain/);
     }
   });
+
+  it("keeps the error single-line on control-character input", () => {
+    const r = resolveSmtpEhloDomain("foo\r\nBAR");
+    assert.equal(r.ok, false);
+    assert.match(r.error, /invalid EHLO domain/);
+    assert.doesNotMatch(r.error, /[\r\n]/);
+  });
 });
 
 describe("smtpSend EHLO fail-closed", () => {

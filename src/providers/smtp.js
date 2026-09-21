@@ -272,9 +272,11 @@ export function resolveSmtpEhloDomain(mailFrom) {
   if (isValidEhloDomain(domain)) {
     return { ok: true, ehlo: domain };
   }
+  // Never echo raw input: keep the error single-line for logs/D1.
+  const shown = addr || String(mailFrom || "").replace(/[\r\n]+/g, " ");
   return {
     ok: false,
-    error: `refusing SMTP with invalid EHLO domain from MAIL FROM "${addr || mailFrom || ""}" (expected an FQDN such as mail.example.com)`,
+    error: `refusing SMTP with invalid EHLO domain from MAIL FROM "${shown}" (expected an FQDN such as mail.example.com)`,
   };
 }
 
