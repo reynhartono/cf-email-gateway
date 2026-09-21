@@ -204,6 +204,8 @@ export async function handleInbound(env, message, config, hooks = {}) {
 
   // Mint reply token only on send_as-enabled apexes (not archive-only zones).
   // Dedupe/retry: reuse the existing inbound_id route — do not mint another.
+  // Note: an empty apex mints only when defaults.send_as.enabled is true;
+  // such a row can never hop — the apex gate stays fail-closed.
   let forwardTokenMeta = null;
   const wantTokens = replyTokensWanted(config, envelopeTo);
   if (wantTokens) {
@@ -462,6 +464,23 @@ function evaluateProxyException(config, hooks, ctx) {
 }
 
 /**
+ * Token is bound to its mint-time apex: the envelope recipient domain must
+ * equal route.our_domain. Prevents a token minted for shops@example.com
+ * from hopping as r+TOKEN@other.example on a shared Worker/D1.
+ *
+ * The trim is load-bearing for rows minted before mint-time normalization
+ * (lowercase-only our_domain) — it lets those legacy rows keep hopping
+ * without a backfill migration. Do not simplify it away.
+ */
+function replyTokenDomainMatches(route, replyTok) {
+  const stored = String(route?.our_domain || "").trim().toLowerCase();
+  const presented = String(replyTok?.ourDomain || "").trim().toLowerCase();
+  // Fail closed: never treat two empty sides as a match.
+  if (!stored || !presented) return false;
+  return stored === presented;
+}
+
+/**
  * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
  */
 async function evaluateReplyException(env, config, hooks, ctx) {
@@ -475,6 +494,11 @@ async function evaluateReplyException(env, config, hooks, ctx) {
 
   const route = await db.getReplyRoute(env.DB, replyTok.token);
   if (!route) return { ok: false, reason: "token_unknown" };
+
+  // Bind token to mint-time apex (shared Worker/D1 must not cross-hop).
+  if (!replyTokenDomainMatches(route, replyTok)) {
+    return { ok: false, reason: "token_domain_mismatch" };
+  }
 
   if (!actor.legacy) {
     const hopMailbox = (
@@ -816,7 +840,14 @@ async function loadForwardTokenMeta(env, inboundId) {
  * Create reply_routes row + participants for X-CFEG forward headers / later r+ hop.
  */
 async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domain, rawText }) {
-  const ourDomain = domain || recipientDomain(envelopeTo);
+  // Normalize at the write site: D1 must hold clean apex/mailbox values so
+  // readers never depend on producer hygiene (helper stays belt-and-braces).
+  // Trim before the truthiness check so a whitespace-only domain falls back
+  // to recipientDomain instead of trimming down to "".
+  const ourDomain =
+    String(domain || "").trim().toLowerCase() ||
+    String(recipientDomain(envelopeTo) || "").trim().toLowerCase();
+  const ourMailbox = String(envelopeTo || "").trim().toLowerCase();
   // Only exclude *our* destinations / operator inbox — NOT authorized_from
   // (authorized_from are external senders who use the gateway; they ARE reply peers)
   const exclude = [config.default_inbox].filter(Boolean);
@@ -844,7 +875,7 @@ async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domai
     token,
     inbound_id: inboundId,
     our_domain: ourDomain,
-    our_mailbox: String(envelopeTo || "").toLowerCase(),
+    our_mailbox: ourMailbox,
     created_at: Date.now(),
     multiparty,
     subject: getHeader(rawText, "subject") || "",
@@ -875,7 +906,7 @@ async function mintForwardReplyToken(env, config, { inboundId, envelopeTo, domai
   return {
     token,
     ourDomain,
-    ourMailbox: String(envelopeTo || "").toLowerCase(),
+    ourMailbox,
     primary,
     others,
     multiparty,
@@ -949,6 +980,19 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
       /* */
     }
     const err = new Error("reply_token_unknown");
+    err.retryable = false;
+    throw err;
+  }
+
+  // Defense-in-depth: same apex bind as evaluateReplyException, in case this
+  // handler is ever reached without the outer gate.
+  if (!replyTokenDomainMatches(route, replyTok)) {
+    try {
+      message.setReject?.("reply-token: domain mismatch");
+    } catch {
+      /* */
+    }
+    const err = new Error("reply_token_domain_mismatch");
     err.retryable = false;
     throw err;
   }
