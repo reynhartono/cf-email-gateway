@@ -454,6 +454,14 @@ function collectAuthResultsHeaders(rawText) {
  * Gmail From: requires google/gmail/googlemail marker on the aligned method
  * (or authserv), never a bare unrelated dkim=pass.
  *
+ * Multi-line fail-closed (issue #22): every Cloudflare-looking AR/ARC line
+ * that mentions the identity must itself contain an aligned pass. A
+ * client-supplied `mx.cloudflare.net` line cannot authorize when Email
+ * Routing's own evaluation for that identity fails — any CF-looking line for
+ * the identity without an aligned pass vetoes. Lines that do not mention the
+ * identity are ignored. Authserv substring spoofs are already rejected by
+ * `isCloudflareAuthservId` (issue #13).
+ *
  * Domain alignment is relaxed (subdomain OK) — a compromised subdomain of an
  * allowlisted apex can align; operators should treat apex ownership carefully.
  *
@@ -469,11 +477,14 @@ export function cfAuthLooksPass(rawText, fromEmail) {
 
   const isGmailFrom = fromDom === "gmail.com";
 
+  let anyAlignedPass = false;
+
   for (const arValue of headers) {
     const { authservId, methods } = parseAuthenticationResults(arValue);
-    for (const { method, result, props } of methods) {
-      if (result !== "pass") continue;
+    let lineMentionsIdentity = false;
+    let lineHasAlignedPass = false;
 
+    for (const { method, result, props } of methods) {
       let authDom = "";
       if (method === "dkim") {
         authDom =
@@ -495,6 +506,9 @@ export function cfAuthLooksPass(rawText, fromEmail) {
       }
 
       if (!authDom || !domainsAlignForAuth(fromDom, authDom)) continue;
+      lineMentionsIdentity = true;
+
+      if (result !== "pass") continue;
 
       if (isGmailFrom) {
         // Narrow Gmail acceptance: aligned domain must be google ecosystem,
@@ -505,8 +519,14 @@ export function cfAuthLooksPass(rawText, fromEmail) {
         if (!googleish) continue;
       }
 
-      return true;
+      lineHasAlignedPass = true;
     }
+
+    // Fail closed: a Cloudflare-looking line that evaluates this identity
+    // but carries no aligned pass (fail / none / softfail / missing pass)
+    // vetoes — a crafted client line cannot override the receiving ADMD.
+    if (lineMentionsIdentity && !lineHasAlignedPass) return false;
+    if (lineHasAlignedPass) anyAlignedPass = true;
   }
-  return false;
+  return anyAlignedPass;
 }

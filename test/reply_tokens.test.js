@@ -277,4 +277,66 @@ describe("reply_tokens", () => {
     ]);
     assert.equal(getHeader(raw, "authentication-results"), "second.example; spf=pass");
   });
+
+  it("cfAuthLooksPass fails closed on multiple CF-looking lines (issue #22)", () => {
+    // Synthetic repro from the issue: client-looking CF pass + receiving CF fail
+    const cfPassPlusCfFail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com; spf=fail smtp.mailfrom=me@gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(cfPassPlusCfFail, "me@gmail.com"), false);
+
+    // Reversed order must also fail (order-independent fail-closed)
+    const cfFailPlusCfPass = [
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com; spf=fail smtp.mailfrom=me@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(cfFailPlusCfPass, "me@gmail.com"), false);
+
+    // Two CF-looking passes for the identity → still passes
+    const twoCfPass = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=me@gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(twoCfPass, "me@gmail.com"), true);
+
+    // CF pass for the identity + CF line that does not mention it → passes
+    const passPlusUnrelated = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=other.example",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passPlusUnrelated, "me@gmail.com"), true);
+
+    // CF none for the identity alongside a CF pass → fails closed
+    const passPlusNone = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=none header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passPlusNone, "bob@corp.example"), false);
+
+    // ARC + AR mix: CF-looking ARC pass + CF AR fail → fails closed
+    const arcPassPlusArFail = [
+      "ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(arcPassPlusArFail, "bob@corp.example"), false);
+  });
 });

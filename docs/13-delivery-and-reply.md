@@ -19,6 +19,8 @@ Auth: `token_auth.authorized_from` / identities **+** CF Authentication-Results 
 
 `cfAuthLooksPass` (shared with send-proxy) requires a Cloudflare authserv `Authentication-Results` / ARC line whose authserv-id is `cloudflare.net` or a DNS-label under `.cloudflare.net` (typically `mx.cloudflare.net`; Email Routing injects these). Substring spoofs (`notcloudflare.net`, `cloudflare.evil`) and client-only AR fail closed. Aligned `dkim` / `spf` / `dmarc` **pass** must match the **envelope** identity being authorized. Gmail envelope must align to the google/gmail ecosystem (Q39 / issue #7 / #13). Domain alignment is relaxed (subdomain OK).
 
+Authserv allowlist alone is not enough when several Cloudflare-looking lines exist (issue #22): a client-supplied `Authentication-Results: mx.cloudflare.net; …pass…` preserved next to Email Routing's own evaluation must not authorize. Every Cloudflare-looking line that mentions the envelope identity must itself carry an aligned pass — any such line without one (fail / none / softfail) vetoes, order-independently. Lines that do not mention the identity are ignored.
+
 ## Send-proxy (exception)
 
 See [17-send-proxy.md](./17-send-proxy.md). Unauthorized or CF-auth-fail proxy-shaped To stays on default forward.  
