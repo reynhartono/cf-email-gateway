@@ -468,8 +468,8 @@ function evaluateProxyException(config, hooks, ctx) {
  */
 function replyTokenDomainMatches(route, replyTok) {
   return (
-    String(route?.our_domain || "").toLowerCase() ===
-    String(replyTok?.ourDomain || "").toLowerCase()
+    String(route?.our_domain || "").trim().toLowerCase() ===
+    String(replyTok?.ourDomain || "").trim().toLowerCase()
   );
 }
 
