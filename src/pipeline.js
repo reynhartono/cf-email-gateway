@@ -462,6 +462,18 @@ function evaluateProxyException(config, hooks, ctx) {
 }
 
 /**
+ * Token is bound to its mint-time apex: the envelope recipient domain must
+ * equal route.our_domain. Prevents a token minted for shops@example.com
+ * from hopping as r+TOKEN@other.example on a shared Worker/D1.
+ */
+function replyTokenDomainMatches(route, replyTok) {
+  return (
+    String(route?.our_domain || "").toLowerCase() ===
+    String(replyTok?.ourDomain || "").toLowerCase()
+  );
+}
+
+/**
  * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
  */
 async function evaluateReplyException(env, config, hooks, ctx) {
@@ -476,12 +488,8 @@ async function evaluateReplyException(env, config, hooks, ctx) {
   const route = await db.getReplyRoute(env.DB, replyTok.token);
   if (!route) return { ok: false, reason: "token_unknown" };
 
-  // Bind token to mint-time apex: r+TOKEN@other.example must not load a
-  // route minted for shops@example.com on a shared Worker/D1.
-  if (
-    String(route.our_domain || "").toLowerCase() !==
-    String(replyTok.ourDomain || "").toLowerCase()
-  ) {
+  // Bind token to mint-time apex (shared Worker/D1 must not cross-hop).
+  if (!replyTokenDomainMatches(route, replyTok)) {
     return { ok: false, reason: "token_domain_mismatch" };
   }
 
@@ -964,10 +972,7 @@ async function handleReplyHop(env, message, config, hooks, ctx) {
 
   // Defense-in-depth: same apex bind as evaluateReplyException, in case this
   // handler is ever reached without the outer gate.
-  if (
-    String(route.our_domain || "").toLowerCase() !==
-    String(replyTok.ourDomain || "").toLowerCase()
-  ) {
+  if (!replyTokenDomainMatches(route, replyTok)) {
     try {
       message.setReject?.("reply-token: domain mismatch");
     } catch {
