@@ -61,6 +61,11 @@ export async function smtpSend(env, req) {
   if (!req.mimeText) {
     return { ok: false, error: "smtp mimeText required" };
   }
+  const ehlo = resolveSmtpEhloDomain(mailFrom);
+  if (!ehlo.ok) {
+    return { ok: false, error: ehlo.error };
+  }
+  const ehloHost = ehlo.ehlo;
 
   let connect;
   try {
@@ -146,7 +151,7 @@ export async function smtpSend(env, req) {
     let r = await readResponse();
     if (r.code !== 220) throw new Error(`banner ${r.full}`);
 
-    r = await cmd("EHLO cf-email-gateway.workers.dev");
+    r = await cmd(`EHLO ${ehloHost}`);
     if (r.code !== 250) throw new Error(`EHLO ${r.full}`);
 
     if (secureTransport === "starttls") {
@@ -172,7 +177,7 @@ export async function smtpSend(env, req) {
       reader = socket.readable.getReader();
       writer = socket.writable.getWriter();
       buf = "";
-      r = await cmd("EHLO cf-email-gateway.workers.dev");
+      r = await cmd(`EHLO ${ehloHost}`);
       if (r.code !== 250) throw new Error(`EHLO after TLS ${r.full}`);
     }
 
@@ -248,6 +253,49 @@ export async function smtpSend(env, req) {
 
 const SMTP_IMPLICIT_TLS_PORTS = new Set([465, 8465, 443]);
 const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
+
+/**
+ * Derive the SMTP EHLO hostname from the envelope MAIL FROM domain.
+ *
+ * req.mailFrom is available before connect, so no env override:
+ * the sending domain is always at hand. Fail-closed: single-label names
+ * (`localhost`), bare IPs, and malformed domains return ok:false instead
+ * of falling back to a default host.
+ *
+ * @param {string} mailFrom — already-normalized envelope sender
+ * @returns {{ ok: true, ehlo: string } | { ok: false, error: string }}
+ */
+export function resolveSmtpEhloDomain(mailFrom) {
+  const addr = bareEmail(mailFrom);
+  const at = addr.lastIndexOf("@");
+  const domain = at > 0 ? addr.slice(at + 1).toLowerCase() : "";
+  if (isValidEhloDomain(domain)) {
+    return { ok: true, ehlo: domain };
+  }
+  // Never echo raw input: keep the error single-line for logs/D1.
+  const shown = addr || String(mailFrom || "").replace(/[\r\n]+/g, " ");
+  return {
+    ok: false,
+    error: `refusing SMTP with invalid EHLO domain from MAIL FROM "${shown}" (expected an FQDN such as mail.example.com)`,
+  };
+}
+
+/**
+ * Strict FQDN check for EHLO: dot-required (rejects `localhost` and other
+ * single-label names), valid hostname labels capped at 63 chars each,
+ * and a non-numeric TLD (rejects bare IPs, which belong in `[...]`
+ * literals, not EHLO).
+ */
+function isValidEhloDomain(domain) {
+  if (!/^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+    return false;
+  }
+  if (!domain.split(".").every((label) => label.length <= 63)) {
+    return false;
+  }
+  const tld = domain.slice(domain.lastIndexOf(".") + 1);
+  return /[a-z]/.test(tld);
+}
 
 /**
  * Parse the configured SMTP port. Unset (`undefined`/`null`) or blank
