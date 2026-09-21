@@ -45,6 +45,16 @@ async function seedRoute(DB) {
     in_primary: true,
     in_all: true,
   });
+  await insertReplyParticipant(DB, {
+    id: "p-domain-bind-p1",
+    token: TOKEN,
+    email: "carol@c.com",
+    display_hint: "Carol",
+    role: "cc",
+    local_suffix: "p1",
+    in_primary: false,
+    in_all: true,
+  });
 }
 
 function hopMessage(to, messageId) {
@@ -103,6 +113,62 @@ describe("reply token apex bind (issue #24)", () => {
 
     assert.equal(res.status, "reply_token_completed");
     assert.equal(sent?.mailFrom, "shops@example.com");
+  });
+
+  it("hops case-insensitively on the mint-time apex", async () => {
+    const DB = createMemoryDb();
+    await seedRoute(DB);
+    const config = gatewayConfig();
+    const msg = hopMessage(`R+${TOKEN}@EXAMPLE.COM`, "<hop-upper-apex@t>");
+
+    let sent = null;
+    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+      skipCfAuth: true,
+      archivePut: async () => ({ ok: true, r2_key: "k" }),
+      deliver: async () => {
+        throw new Error("must take the reply hop, not the default route");
+      },
+      smtpSend: async (_env, req) => {
+        sent = req;
+        return { ok: true, providerMessageId: "hop1" };
+      },
+    });
+
+    assert.equal(res.status, "reply_token_completed");
+    assert.equal(sent?.mailFrom, "shops@example.com");
+  });
+
+  it("skips cross-apex hops with suffix forms", async () => {
+    // The domain gate runs before suffix branching, so .all/.p1 variants
+    // (which would otherwise resolve participants) must also fall through.
+    for (const [suffix, mid] of [
+      ["all", "<hop-cross-all@t>"],
+      ["p1", "<hop-cross-p1@t>"],
+    ]) {
+      const DB = createMemoryDb();
+      await seedRoute(DB);
+      const config = gatewayConfig();
+      const msg = hopMessage(`r+${TOKEN}.${suffix}@other.example`, mid);
+
+      let forwarded = null;
+      let smtpCalled = false;
+      const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+        skipCfAuth: true,
+        archivePut: async () => ({ ok: true, r2_key: "k" }),
+        deliver: async (_env, _message, t) => {
+          forwarded = t.destination;
+          return { ok: true };
+        },
+        smtpSend: async () => {
+          smtpCalled = true;
+          return { ok: true };
+        },
+      });
+
+      assert.equal(res.status, "completed", `suffix .${suffix} must skip`);
+      assert.equal(forwarded, "me@gmail.com", `suffix .${suffix} must forward`);
+      assert.equal(smtpCalled, false, `suffix .${suffix} must not send`);
+    }
   });
 
   it("skips the hop when the token is presented on another apex", async () => {
