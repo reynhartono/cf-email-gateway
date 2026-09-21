@@ -277,4 +277,153 @@ describe("reply_tokens", () => {
     ]);
     assert.equal(getHeader(raw, "authentication-results"), "second.example; spf=pass");
   });
+
+  it("cfAuthLooksPass fails closed on multiple CF-looking lines (issue #22)", () => {
+    // Synthetic repro from the issue: client-looking CF pass + receiving CF fail
+    const cfPassPlusCfFail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com; spf=fail smtp.mailfrom=me@gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(cfPassPlusCfFail, "me@gmail.com"), false);
+
+    // Reversed order must also fail (order-independent fail-closed)
+    const cfFailPlusCfPass = [
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com; spf=fail smtp.mailfrom=me@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(cfFailPlusCfPass, "me@gmail.com"), false);
+
+    // Two CF-looking passes for the identity → still passes
+    const twoCfPass = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=me@gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(twoCfPass, "me@gmail.com"), true);
+
+    // CF pass for the identity + CF line that does not mention it → passes
+    const passPlusUnrelated = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=other.example",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passPlusUnrelated, "me@gmail.com"), true);
+
+    // CF none for the identity alongside a CF pass → fails closed
+    const passPlusNone = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=none header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passPlusNone, "bob@corp.example"), false);
+
+    // ARC + AR mix: CF-looking ARC pass + CF AR fail → fails closed
+    const arcPassPlusArFail = [
+      "ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(arcPassPlusArFail, "bob@corp.example"), false);
+
+    // softfail for the identity vetoes just like fail/none (docs behavior)
+    const passPlusSoftfail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=softfail header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passPlusSoftfail, "bob@corp.example"), false);
+
+    // dmarc-only multi-line: dmarc pass + dmarc fail → fails closed
+    const dmarcPassPlusDmarcFail = [
+      "Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dmarc=fail header.from=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(
+      cfAuthLooksPass(dmarcPassPlusDmarcFail, "bob@corp.example"),
+      false,
+    );
+
+    // 3 lines: pass + unrelated + fail → unrelated ignored, fail still vetoes
+    const passUnrelatedFail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=other.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(passUnrelatedFail, "me@gmail.com"), false);
+
+    // Gmail subdomain signatures count as google ecosystem (no false veto)
+    const gmailSubdomain = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=sub.gmail.com header.i=@sub.gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(gmailSubdomain, "me@gmail.com"), true);
+
+    // temperror / permerror veto just like fail/none/softfail (any non-pass)
+    const passPlusTemperror = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=temperror header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(
+      cfAuthLooksPass(passPlusTemperror, "bob@corp.example"),
+      false,
+    );
+    const passPlusPermerror = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=corp.example",
+      "Authentication-Results: mx.cloudflare.net; dkim=permerror header.d=corp.example",
+      "From: bob@corp.example",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(
+      cfAuthLooksPass(passPlusPermerror, "bob@corp.example"),
+      false,
+    );
+    // Parent-domain-aligned but non-googleish line neither passes nor vetoes
+    // a good Gmail pass (e.g. header.d=com aligns via parent rule).
+    const gmailPassPlusComLine = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(gmailPassPlusComLine, "me@gmail.com"), true);
+
+    // Genuine Gmail fail still vetoes after googleish scoping.
+    const gmailPassPlusGmailFail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(gmailPassPlusGmailFail, "me@gmail.com"), false);
+  });
 });
