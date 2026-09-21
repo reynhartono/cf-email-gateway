@@ -125,6 +125,7 @@ describe("parseSmtpPort", () => {
   it("defaults unset or blank to 465", () => {
     assert.equal(parseSmtpPort({}), 465);
     assert.equal(parseSmtpPort({ SMTP_PORT: undefined }), 465);
+    assert.equal(parseSmtpPort({ SMTP_PORT: null }), 465);
     assert.equal(parseSmtpPort({ SMTP_PORT: "" }), 465);
     assert.equal(parseSmtpPort({ SMTP_PORT: "   " }), 465);
   });
