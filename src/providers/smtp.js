@@ -44,9 +44,7 @@ export async function smtpSend(env, req) {
     };
   }
 
-  const rawPort = env.SMTP_PORT ?? 465;
-  const port =
-    rawPort === "" ? 465 : Number(rawPort);
+  const port = parseSmtpPort(env);
   const tls = resolveSmtpSecureTransport(env, port);
   if (!tls.ok) {
     return { ok: false, error: tls.error };
@@ -252,6 +250,21 @@ const SMTP_IMPLICIT_TLS_PORTS = new Set([465, 8465, 443]);
 const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
 
 /**
+ * Parse the configured SMTP port. Unset (`undefined`/`null`) or blank
+ * (empty/whitespace string) → 465 default. Anything else → `Number(raw)`;
+ * non-numeric / out-of-range values flow through for
+ * `resolveSmtpSecureTransport` to reject fail-closed.
+ *
+ * @param {object} env
+ * @returns {number}
+ */
+export function parseSmtpPort(env) {
+  const raw = env?.SMTP_PORT ?? 465;
+  if (typeof raw === "string" && raw.trim() === "") return 465;
+  return Number(raw);
+}
+
+/**
  * Fail-closed TLS mapping for outbound SMTP.
  *
  * Known implicit-TLS ports → "on"; known submission ports → "starttls".
@@ -261,7 +274,7 @@ const SMTP_STARTTLS_PORTS = new Set([587, 2525, 8025]);
  *
  * @param {object} env
  * @param {number} port — must be the parsed SMTP port
- *   (`Number(env.SMTP_PORT ?? 465)`); callers must not pass a value derived
+ *   (`parseSmtpPort(env)`); callers must not pass a value derived
  *   any other way, since the invalid-port error echoes `env.SMTP_PORT`.
  * @returns {{ ok: true, secureTransport: "on"|"starttls" } | { ok: false, error: string }}
  */

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveSmtpSecureTransport, smtpSend } from "../src/providers/smtp.js";
+import { resolveSmtpSecureTransport, parseSmtpPort, smtpSend } from "../src/providers/smtp.js";
 
 const BASE_ENV = {
   SMTP_HOST: "mail.example.com",
@@ -118,6 +118,22 @@ describe("resolveSmtpSecureTransport", () => {
     const r = resolveSmtpSecureTransport({ SMTP_TLS: "off" }, 465);
     assert.equal(r.ok, false);
     assert.match(r.error, /unknown SMTP_TLS/);
+  });
+});
+
+describe("parseSmtpPort", () => {
+  it("defaults unset or blank to 465", () => {
+    assert.equal(parseSmtpPort({}), 465);
+    assert.equal(parseSmtpPort({ SMTP_PORT: undefined }), 465);
+    assert.equal(parseSmtpPort({ SMTP_PORT: "" }), 465);
+    assert.equal(parseSmtpPort({ SMTP_PORT: "   " }), 465);
+  });
+
+  it("passes other values through Number", () => {
+    assert.equal(parseSmtpPort({ SMTP_PORT: "465" }), 465);
+    assert.equal(parseSmtpPort({ SMTP_PORT: 587 }), 587);
+    assert.equal(parseSmtpPort({ SMTP_PORT: 0 }), 0);
+    assert.ok(Number.isNaN(parseSmtpPort({ SMTP_PORT: "abc" })));
   });
 });
 

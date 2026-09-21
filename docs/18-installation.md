@@ -250,6 +250,8 @@ Not required for archive/forward/compose/send-proxy.
 | `SMTP_TLS` | optional (`on` \| `starttls` — explicit override for rare ports) |
 | `COMPOSE_API_TOKEN` | `/v1/compose`, `/v1/smtp-selftest` |
 
+Breaking change: ports 25 and 80 now hard-error instead of connecting in plaintext — a plaintext-only relay on port 25 will break on upgrade (setting `SMTP_TLS` will not help unless the server actually speaks TLS there).
+
 ---
 
 ## Ops notes
