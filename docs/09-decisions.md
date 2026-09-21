@@ -42,6 +42,7 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 | Q40 | Exception identity = envelope | Hop/proxy allowlist + actor + CF auth use **envelope From only** (not MIME From, not envelope∨header). Cross-signal attack (attacker envelope + real AR + spoofed allowlisted From) → default forward |
 | Q41 | ROUTING_YAML required | Non-empty secret is runtime SoT; **no fallback** and **no Worker import** of `routing.example.yaml` (docs/copy-paste only). Missing/empty/unparsable → email throws, HTTP non-health → **503**. `/health` stays up with `routing_ok`. Local DX: put YAML in `.dev.vars` / secret as `ROUTING_YAML` |
 | Q42 | Alias From display name | Optional **`display_name`** on: (1) inbound **rule** (`address` or `local_part_prefix` — field always optional), (2) **`domains.<apex>.display_name`** domain default when no rule name matches, (3) optional **`defaults.display_name`**. Lookup: address rule → prefix rule → domain → defaults. Used as MIME From on **send-proxy** when `{aliasDisplay}` braces absent, and on **reply hop**. Explicit braces always win. Missing everywhere = bare address. Compose HTTP keeps optional `from_name` only. No separate top-level aliases map. `catch_all` rules ignored for From display. |
+| Q43 | One token per inbound | X-CFEG mint is **once per `inbound_messages.id`**. Dedupe hit / dest retry **reuses** the existing `reply_routes` row (oldest if historical dups). Do **not** `generateToken` again. First run that never minted (token_fail) may mint once on a later retry. |
 
 
 ## Not open
@@ -59,5 +60,6 @@ Author PII → gitignored `config/routing.local.yaml` / `docs/author-fleet.local
 - Stripping **reply-token** (`r+…`) locals on hop skip (Option A — would invent bare `r@`)  
 - Dual-delivery on successful hop/proxy exception  
 - Merging dedupe keys across `alice@` vs `alice+tag@`  
+- Minting a **new** `r+` token on Message-ID / `dedupe_key` retry  
 - Publishing person / vanity mailbox bare `r@` or namespace `r.` on Worker-handled apexes  
 - Silent load / Worker import of bundled `routing.example.yaml` when `ROUTING_YAML` is missing (Q41)  

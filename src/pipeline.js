@@ -198,24 +198,34 @@ export async function handleInbound(env, message, config, hooks = {}) {
     }
   }
 
-  // Mint reply token only on send_as-enabled apexes (not archive-only zones)
+  // Mint reply token only on send_as-enabled apexes (not archive-only zones).
+  // Dedupe/retry: reuse the existing inbound_id route — do not mint another.
   let forwardTokenMeta = null;
   const wantTokens = replyTokensWanted(config, envelopeTo);
   if (wantTokens) {
     try {
-      forwardTokenMeta = await mintForwardReplyToken(env, config, {
-        inboundId: inbound.id,
-        envelopeTo,
-        domain,
-        rawText,
-      });
-      logger.info("forward.token", {
-        invocationId,
-        token: forwardTokenMeta?.token,
-        replyTo: forwardTokenMeta
-          ? `r+${forwardTokenMeta.token}@${forwardTokenMeta.ourDomain}`
-          : null,
-      });
+      forwardTokenMeta = await loadForwardTokenMeta(env, inbound.id);
+      if (forwardTokenMeta) {
+        logger.info("forward.token_reuse", {
+          invocationId,
+          token: forwardTokenMeta.token,
+          replyTo: `r+${forwardTokenMeta.token}@${forwardTokenMeta.ourDomain}`,
+        });
+      } else {
+        forwardTokenMeta = await mintForwardReplyToken(env, config, {
+          inboundId: inbound.id,
+          envelopeTo,
+          domain,
+          rawText,
+        });
+        logger.info("forward.token", {
+          invocationId,
+          token: forwardTokenMeta?.token,
+          replyTo: forwardTokenMeta
+            ? `r+${forwardTokenMeta.token}@${forwardTokenMeta.ourDomain}`
+            : null,
+        });
+      }
     } catch (e) {
       logger.warn("forward.token_fail", { error: e?.message || String(e) });
     }
@@ -756,6 +766,41 @@ async function defaultDeliver(env, message, target, config, rawCtx = {}) {
   return {
     ok: false,
     error: `unsupported method: ${method}`,
+  };
+}
+
+/**
+ * Existing r+ token for this inbound, if any (oldest row if historical dups).
+ */
+async function loadForwardTokenMeta(env, inboundId) {
+  const route = await db.getReplyRouteByInboundId(env.DB, inboundId);
+  if (!route) return null;
+  const participants = await db.listReplyParticipants(env.DB, route.token);
+  const primaryRow =
+    participants.find((p) => p.role === "primary" || p.in_primary) ||
+    participants[0];
+  const others = participants
+    .filter((p) => !primaryRow || p.email !== primaryRow.email)
+    .map((p) => ({
+      email: p.email,
+      display_hint: p.display_hint,
+      role: p.role,
+      local_suffix: p.local_suffix,
+    }));
+  return {
+    token: route.token,
+    ourDomain: route.our_domain,
+    ourMailbox: route.our_mailbox,
+    primary: primaryRow
+      ? {
+          email: primaryRow.email,
+          display_hint: primaryRow.display_hint,
+          role: primaryRow.role || "primary",
+          header: "from",
+        }
+      : { email: "unknown@invalid", role: "primary", header: "from" },
+    others,
+    multiparty: Boolean(Number(route.multiparty)),
   };
 }
 

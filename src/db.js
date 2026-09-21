@@ -195,6 +195,16 @@ export async function getReplyRoute(db, token) {
     .first();
 }
 
+/** Oldest route for this inbound (retries must not mint a second token). */
+export async function getReplyRouteByInboundId(db, inboundId) {
+  return db
+    .prepare(
+      "SELECT * FROM reply_routes WHERE inbound_id = ? ORDER BY created_at ASC LIMIT 1",
+    )
+    .bind(inboundId)
+    .first();
+}
+
 export async function listReplyParticipants(db, token) {
   const r = await db
     .prepare("SELECT * FROM reply_participants WHERE token = ?")

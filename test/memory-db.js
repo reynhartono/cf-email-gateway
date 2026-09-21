@@ -15,6 +15,13 @@ export function createMemoryDb() {
     if (sql.includes("FROM inbound_messages WHERE dedupe_key")) {
       return inbound.get(binds[0]) || null;
     }
+    if (sql.includes("FROM reply_routes WHERE inbound_id")) {
+      const rows = [...replyRoutes.values()].filter(
+        (r) => r.inbound_id === binds[0],
+      );
+      rows.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+      return rows[0] || null;
+    }
     if (sql.includes("FROM reply_routes WHERE token")) {
       return replyRoutes.get(binds[0]) || null;
     }
