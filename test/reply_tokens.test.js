@@ -381,5 +381,26 @@ describe("reply_tokens", () => {
       "x",
     ].join("\r\n");
     assert.equal(cfAuthLooksPass(gmailSubdomain, "me@gmail.com"), true);
+
+    // Parent-domain-aligned but non-googleish line neither passes nor vetoes
+    // a good Gmail pass (e.g. header.d=com aligns via parent rule).
+    const gmailPassPlusComLine = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(gmailPassPlusComLine, "me@gmail.com"), true);
+
+    // Genuine Gmail fail still vetoes after googleish scoping.
+    const gmailPassPlusGmailFail = [
+      "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=gmail.com header.i=@gmail.com",
+      "Authentication-Results: mx.cloudflare.net; dkim=fail header.d=gmail.com",
+      "From: me@gmail.com",
+      "",
+      "x",
+    ].join("\r\n");
+    assert.equal(cfAuthLooksPass(gmailPassPlusGmailFail, "me@gmail.com"), false);
   });
 });

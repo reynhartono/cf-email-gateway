@@ -506,23 +506,29 @@ export function cfAuthLooksPass(rawText, fromEmail) {
       }
 
       if (!authDom || !domainsAlignForAuth(fromDom, authDom)) continue;
-      lineMentionsIdentity = true;
-
-      if (result !== "pass") continue;
 
       if (isGmailFrom) {
-        // Narrow Gmail acceptance: aligned domain must be google ecosystem
-        // (apex or subdomain, matching the relaxed alignment doctrine),
-        // or authserv-id must look like Google/CF evaluating Gmail.
-        // Intentional fail-closed: a CF-looking line that evaluates the Gmail
-        // identity without such a pass vetoes the whole result instead of
-        // being skipped — a crafted client line cannot override the
-        // receiving ADMD (issue #22 follow-up).
+        // Narrow Gmail acceptance: only google-ecosystem evaluations
+        // (apex or subdomain, or a gmail/google authserv-id) mention or
+        // pass for a Gmail From. This scopes both mention and pass to the
+        // same set, so a parent-domain-aligned line like header.d=com can
+        // neither authorize nor false-veto a good Gmail pass. Genuine Gmail
+        // fail/none lines (gmail/google domiciles) still mention and veto.
+        // Intentional fail-closed: such a line without a pass vetoes instead
+        // of being skipped (issue #22 follow-up).
         const googleish =
           /(^|\.)(gmail\.com|google\.com|googlemail\.com)$/i.test(authDom) ||
           /gmail\.com|google\.com|googlemail\.com/i.test(authservId);
         if (!googleish) continue;
+        lineMentionsIdentity = true;
+        if (result !== "pass") continue;
+        lineHasAlignedPass = true;
+        continue;
       }
+
+      lineMentionsIdentity = true;
+
+      if (result !== "pass") continue;
 
       lineHasAlignedPass = true;
     }
