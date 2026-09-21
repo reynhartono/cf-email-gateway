@@ -250,21 +250,38 @@ describe("reply token apex bind (issue #24)", () => {
 
     let forwarded = null;
     let smtpCalled = false;
-    const res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
-      skipCfAuth: true,
-      archivePut: async () => ({ ok: true, r2_key: "k" }),
-      deliver: async (_env, _message, t) => {
-        forwarded = t.destination;
-        return { ok: true };
-      },
-      smtpSend: async () => {
-        smtpCalled = true;
-        return { ok: true };
-      },
-    });
+    const cap = captureConsole();
+    let res;
+    try {
+      res = await handleInbound({ DB, ARCHIVE: {} }, msg, config, {
+        skipCfAuth: true,
+        archivePut: async () => ({ ok: true, r2_key: "k" }),
+        deliver: async (_env, _message, t) => {
+          forwarded = t.destination;
+          return { ok: true };
+        },
+        smtpSend: async () => {
+          smtpCalled = true;
+          return { ok: true };
+        },
+      });
+    } finally {
+      cap.restore();
+    }
 
     assert.equal(res.status, "completed");
     assert.equal(forwarded, "me@gmail.com");
     assert.equal(smtpCalled, false);
+    const skipped = cap.lines
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .find((e) => e?.event === "reply_token.exception_skipped");
+    assert.ok(skipped, "expected reply_token.exception_skipped log");
+    assert.equal(skipped.reason, "token_domain_mismatch");
   });
 });
