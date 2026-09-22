@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned actions in .github/workflows/ci.yml fresh.
+  # npm is intentionally NOT watched: dependency bumps stay manual and
+  # deliberate (the CI lockfile-churn guard rejects incidental lock churn).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
