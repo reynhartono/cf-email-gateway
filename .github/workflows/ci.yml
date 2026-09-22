@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -26,16 +30,19 @@ jobs:
         run: find src scripts -name '*.js' -o -name '*.mjs' | xargs node --check
 
       - name: Unit tests
+        id: unit-tests
         # `npm test` relies on shell glob expansion of test/**/*.test.js;
         # find-based discovery runs the full suite on every shell.
-        run: find test -name '*.test.js' -print0 | xargs -0 node --test
+        run: find test -name '*.test.js' -print0 | xargs -0 node --test 2>&1 | tee test-output.txt
 
       - name: Routing example validation
+        id: routing-lint
         # Example YAML must parse under the production loader + honor the
         # no-top-level-aliases (Q42) lock. See scripts/ci-routing-lint.mjs.
         run: node scripts/ci-routing-lint.mjs
 
       - name: Worker dry-run
+        id: dry-run
         # Placeholder-only wrangler.toml.example must still bundle.
         # Catches bad imports and entry wiring (e.g. a second /health
         # outside src/index.js, or the example YAML pulled into the bundle).
@@ -44,6 +51,7 @@ jobs:
           npx wrangler deploy --dry-run
 
       - name: Structural guards
+        id: guards
         run: |
           set -e
           # Q41: runtime config is the ROUTING_YAML secret; the Worker must
@@ -60,6 +68,7 @@ jobs:
           fi
 
       - name: Public hygiene
+        id: hygiene
         run: |
           set -e
           tracked=$(git ls-files)
@@ -114,4 +123,54 @@ jobs:
           if echo "$changed" | grep -qE '^src/providers/smtp\.js$'; then
             echo "$changed" | grep -qx 'docs/12-providers.md' \
               || echo "::warning::SMTP mapping change without docs/12-providers.md"
+          fi
+
+      - name: Publish PR summary
+        # Sticky comment so the counts are visible on the PR itself —
+        # no need to open the run logs. Never masks a red job: a passing
+        # final step does not clear earlier failures.
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mark() {
+            case "$1" in
+              success) echo "✅ pass" ;;
+              failure) echo "❌ fail" ;;
+              skipped) echo "⏭️ skipped" ;;
+              *) echo "⚪ did not run" ;;
+            esac
+          }
+          if [ -f test-output.txt ]; then
+            pass=$(grep -E '^# pass ' test-output.txt | awk '{print $3}')
+            fail=$(grep -E '^# fail ' test-output.txt | awk '{print $3}')
+            tests="**${pass:-?} pass / ${fail:-?} fail**"
+          else
+            tests="did not run"
+          fi
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "<!-- cfeg-ci-summary -->"
+            echo "## CI summary · \`${{ github.sha }}\`"
+            echo ""
+            echo "- Unit tests: $tests"
+            echo "- Routing example: $(mark '${{ steps.routing-lint.outcome }}')"
+            echo "- Worker dry-run: $(mark '${{ steps.dry-run.outcome }}')"
+            echo "- Structural guards: $(mark '${{ steps.guards.outcome }}')"
+            echo "- Public hygiene: $(mark '${{ steps.hygiene.outcome }}')"
+            echo ""
+            echo "[Full logs]($run_url)"
+          } > summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          num="${{ github.event.pull_request.number }}"
+          repo="${{ github.repository }}"
+          existing=$(gh api "repos/$repo/issues/$num/comments?per_page=100" \
+            --jq '.[] | select(.body | contains("<!-- cfeg-ci-summary -->")) | .id' | tail -n 1)
+          if [ -n "$existing" ]; then
+            gh api "repos/$repo/issues/comments/$existing" -X PATCH \
+              -F "body=@summary.md" \
+              || echo "::warning::could not update CI summary comment"
+          else
+            gh pr comment "$num" --repo "$repo" --body-file summary.md \
+              || echo "::warning::could not post CI summary comment"
           fi

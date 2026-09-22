@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/reynhartono/cf-email-gateway/actions/workflows/ci.yml"><img src="https://github.com/reynhartono/cf-email-gateway/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT" /></a>
   <a href="docs/18-installation.md"><img src="https://img.shields.io/badge/docs-install-emerald.svg" alt="Install" /></a>
   <a href="https://github.com/reynhartono/cfeg-reply-extension"><img src="https://img.shields.io/badge/companion-CFEG%20Reply-8b5cf6.svg" alt="CFEG Reply" /></a>
