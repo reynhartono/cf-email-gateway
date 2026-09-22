@@ -8,9 +8,16 @@ on:
 permissions:
   contents: read
 
+# One branch = one run; a new push cancels the stale run instead of
+# queueing behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,19 +33,23 @@ jobs:
         run: npm ci
 
       - name: Syntax check
-        run: find src scripts -name '*.js' -o -name '*.mjs' | xargs node --check
+        # -n1: node --check reads only the first file arg, so each file
+        # gets its own invocation. Parens keep the -o alternation explicit.
+        run: find src scripts \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
 
       - name: Unit tests
-        # `npm test` relies on shell glob expansion of test/**/*.test.js;
-        # find-based discovery runs the full suite on every shell.
-        run: find test -name '*.test.js' -print0 | xargs -0 node --test
+        # Quoted glob: node expands it internally, so npm test runs the full
+        # suite on every shell (the unquoted form depends on shell globstar).
+        run: npm test
 
       - name: Routing example validation
+        if: ${{ !cancelled() }}
         # Example YAML must parse under the production loader + honor the
         # no-top-level-aliases (Q42) lock. See scripts/ci-routing-lint.mjs.
         run: node scripts/ci-routing-lint.mjs
 
       - name: Worker dry-run
+        if: ${{ !cancelled() }}
         # Placeholder-only wrangler.toml.example must still bundle.
         # Catches bad imports and entry wiring (e.g. a second /health
         # outside src/index.js, or the example YAML pulled into the bundle).
@@ -47,6 +58,7 @@ jobs:
           npx wrangler deploy --dry-run
 
       - name: Structural guards
+        if: ${{ !cancelled() }}
         run: |
           set -e
           # Q41: runtime config is the ROUTING_YAML secret; the Worker must
@@ -56,13 +68,20 @@ jobs:
             exit 1
           fi
           # GET /health is owned by src/index.js only — it reports routing_ok.
-          owners=$(grep -rln '"/health"' src/)
+          # Same-line path + pathname pairing, so prose mentions of /health
+          # (comments, docs strings) don't count, whatever the quotes.
+          owners=$(grep -rln --include='*.js' -e 'pathname.*/health' -e '/health.*pathname' src/ || true)
+          if [ -z "$owners" ]; then
+            echo "::error::/health route not found in src/ (expected src/index.js)"
+            exit 1
+          fi
           if [ "$owners" != "src/index.js" ]; then
             echo "::error::/health route must live in src/index.js only (found: $owners)"
             exit 1
           fi
 
       - name: Public hygiene
+        if: ${{ !cancelled() }}
         run: |
           set -e
           tracked=$(git ls-files)
@@ -74,7 +93,7 @@ jobs:
               exit 1
             fi
           done
-          if echo "$tracked" | grep -E '\.eml$'; then
+          if echo "$tracked" | grep -qE '\.eml$'; then
             echo "::error::real mail dumps (*.eml) must not be committed"
             exit 1
           fi
@@ -89,7 +108,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|ci|chore|refactor|test|perf|build)(\(.+\))?!?: .+' \
+          echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|ci|chore|refactor|test|perf|build|revert)(\(.+\))?!?: .+' \
             || { echo "::error::PR title must follow Conventional Commits (e.g. 'ci: add PR checks')"; exit 1; }
 
       - name: Lockfile churn guard
