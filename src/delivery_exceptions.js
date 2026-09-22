@@ -13,8 +13,6 @@ import {
   replyTokenDomainMatches,
 } from "./reply_hop_handler.js";
 
-export { replyTokenDomainMatches };
-
 /**
  * Opt-in exceptions to the default cf_forward route.
  * Enter hop/proxy only when every gate passes; otherwise return null

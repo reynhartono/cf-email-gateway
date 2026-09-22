@@ -19,6 +19,9 @@ import { logger } from "./log.js";
  * equal route.our_domain. Prevents a token minted for shops@example.com
  * from hopping as r+TOKEN@other.example on a shared Worker/D1.
  *
+ * Canonical home of this helper: import it from ./reply_hop_handler.js
+ * (delivery_exceptions.js imports it from here; do not re-export elsewhere).
+ *
  * The trim is load-bearing for rows minted before mint-time normalization
  * (lowercase-only our_domain) — it lets those legacy rows keep hopping
  * without a backfill migration. Do not simplify it away.
