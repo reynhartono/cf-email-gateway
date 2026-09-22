@@ -75,4 +75,4 @@ Send-proxy specifics (on top of that gate):
 - `alias@domain` needs `domains.<domain>.send_as.enabled` + ESP-verified domain.
 - Authorized success path is **proxy-only** (no dual-delivery to default_inbox).
 
-Do **not** treat raw MIME `From` matching the allowlist as proof of mailbox control.
+Do **not** treat raw MIME `From` matching the allowlist as proof of mailbox control. Envelope allowlist + CF auth on the envelope are both required (`hooks.skipCfAuth` bypasses CF auth in tests only).

@@ -24,6 +24,20 @@ Breaking change: ports 25 and 80 now hard-error instead of connecting in plainte
 
 ## Outbound wire
 
-All outbound (compose, send-proxy, reply hop) uses **SMTP DATA** over TCP — see [16-outbound-smtp-vs-api.md](./16-outbound-smtp-vs-api.md) for the wire diagram and why not HTTP send APIs.
+All outbound (compose, send-proxy, reply hop) uses **SMTP DATA** over TCP:
+
+```text
+Worker → SMTP_HOST:SMTP_PORT (TLS)
+  AUTH LOGIN
+  MAIL FROM / RCPT TO
+  DATA
+  <exact MIME>
+  .
+```
 
 Hop/proxy body is 1:1 MIME via SMTP DATA.
+
+## Why not HTTP “send email” APIs?
+
+Vendor HTTP MIME endpoints often **re-wrap** messages (drop HTML, new boundaries).
+SMTP DATA keeps multipart/QP bodies **1:1**.
