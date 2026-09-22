@@ -3,7 +3,9 @@ name: ci
 on:
   pull_request:
     # Code changes only — not labels, assignees, or review requests.
-    types: [opened, synchronize, reopened]
+    # ready_for_review covers draft → ready (no push fires there, and
+    # check is a required status gate, so the transition must run CI).
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
