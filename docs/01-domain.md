@@ -39,8 +39,8 @@
           address → local_part_prefix → catch_all → default_inbox
 ```
 
-Multi-person privacy on one apex: local-part namespaces + `skip_default_inbox` — `docs/19-multi-person-routing.md`.  
-Identities / ACL: `docs/20-identities.md`.
+Multi-person privacy on one apex: local-part namespaces + `skip_default_inbox` — [19-multi-person-routing.md](./19-multi-person-routing.md).  
+Identities / ACL: [20-identities.md](./20-identities.md).
 
 ## send_as
 

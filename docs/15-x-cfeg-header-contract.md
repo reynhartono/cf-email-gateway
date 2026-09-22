@@ -138,7 +138,7 @@ Cc: peer@cc.example
 
 | Party | role | token |
 |-------|------|--------|
-| `alice@` | primary | `r+TOKEN@example.com` |
+| `alice@a.com` | primary | `r+TOKEN@example.com` |
 | `peer@cc.example` | cc | `r+TOKEN.p1@example.com` |
 
 ```text
@@ -245,5 +245,5 @@ Parties: **Alice only**. Multi local To are not external peers.
 
 ## Test hooks
 
-- Unit: `test/forward_headers.test.js`, `test/reply_tokens.test.js`  
+- Unit: [`test/forward_headers.test.js`](../test/forward_headers.test.js), [`test/reply_tokens.test.js`](../test/reply_tokens.test.js)  
 - Live: send S2-style mail → Show original → check `X-CFEG-Parties`

@@ -40,7 +40,7 @@ Prefer stable handles (`alice.`) over single-letter (`a.`) unless the set is tin
 ## Rule tier reminder
 
 `address` → `local_part_prefix` → `catch_all` → `default_inbox`  
-(see `docs/02-config-and-routing.md`).
+(see [02-config-and-routing.md](./02-config-and-routing.md)).
 
 ## Operator checklist
 
@@ -49,5 +49,5 @@ Prefer stable handles (`alice.`) over single-letter (`a.`) unless the set is tin
 3. Optional exact vanity addresses for bare `person@apex`.  
 4. Apex `catch_all` policy for unknowns.  
 5. `authorized_from` only for people allowed to hop / send-proxy (or bind via `identities`).  
-6. For compose + hop isolation, add `identities` with matching `can_send_as` prefixes — `docs/20-identities.md`.  
+6. For compose + hop isolation, add `identities` with matching `can_send_as` prefixes — [20-identities.md](./20-identities.md).  
 7. Tell participants: archive is operator-hosted; aliases are privacy vs third parties, not vs the operator.
