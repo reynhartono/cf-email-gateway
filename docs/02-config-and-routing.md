@@ -144,8 +144,8 @@ The single-label local **`r`** is reserved for reply-token grammar (`r+TOKEN@ape
 - Put **longer / more specific** prefixes **before** shorter ones in YAML (first match in tier 2 wins).
 - Empty `value` never matches.
 - Multi-person / shared privacy domains: set **`skip_default_inbox: true`** on person rules or operator inbox is still merged.
-- **Outbound** mailbox shapes (compose / send-proxy / reply hop) are SoT in `docs/20-identities.md` (`can_send_as`, same trailing-`.` lock, glue/reserved denies).
+- **Outbound** mailbox shapes (compose / send-proxy / reply hop) are SoT in [20-identities.md](./20-identities.md) (`can_send_as`, same trailing-`.` lock, glue/reserved denies).
 
 ### Multi-person privacy pattern
 
-SoT: `docs/19-multi-person-routing.md` (namespaces, rule pairs, catch_all policy) + `docs/20-identities.md` (outbound ACL). This doc owns match tiers + normalize only — do not add person tables here.
+SoT: [19-multi-person-routing.md](./19-multi-person-routing.md) (namespaces, rule pairs, catch_all policy) + [20-identities.md](./20-identities.md) (outbound ACL). This doc owns match tiers + normalize only — do not add person tables here.
