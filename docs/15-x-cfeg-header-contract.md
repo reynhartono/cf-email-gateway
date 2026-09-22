@@ -138,8 +138,8 @@ Cc: peer@cc.example
 
 | Party | role | token |
 |-------|------|--------|
-| alice@ | primary | `r+TOKEN@example.com` |
-| peer@cc.example | cc | `r+TOKEN.p1@example.com` |
+| `alice@a.com` | primary | `r+TOKEN@example.com` |
+| `peer@cc.example` | cc | `r+TOKEN.p1@example.com` |
 
 ```text
 X-CFEG-Reply-To: "Alice Example <alice@a.com>" <r+TOKEN@example.com>
@@ -167,9 +167,9 @@ Cc: Carol <carol@c.com>
 
 | Party | role | token |
 |-------|------|--------|
-| desk@vendor.com | primary | `r+TOKEN@` |
-| alice@a.com | from | `r+TOKEN.p1@` |
-| carol@c.com | cc | `r+TOKEN.p2@` |
+| `desk@vendor.com` | primary | `r+TOKEN@` |
+| `alice@a.com` | from | `r+TOKEN.p1@` |
+| `carol@c.com` | cc | `r+TOKEN.p2@` |
 
 ```text
 X-CFEG-Reply-To: "Desk <desk@vendor.com>" <r+TOKEN@example.com>
@@ -189,11 +189,11 @@ Cc: Carol <carol@c.com>, Eve <eve@e.com>
 
 | # | email | role |
 |---|-------|------|
-| 0 | alice@a.com | primary |
-| p1 | bob@b.com | to |
-| p2 | dana@d.com | to |
-| p3 | carol@c.com | cc |
-| p4 | eve@e.com | cc |
+| 0 | `alice@a.com` | primary |
+| p1 | `bob@b.com` | to |
+| p2 | `dana@d.com` | to |
+| p3 | `carol@c.com` | cc |
+| p4 | `eve@e.com` | cc |
 
 `catch@example.com` omitted (our domain).
 
@@ -213,9 +213,9 @@ To: catch@example.com
 
 | # | email | role |
 |---|-------|------|
-| 0 | r1@x.com | primary |
-| p1 | r2@x.com | reply-to |
-| p2 | alice@a.com | from |
+| 0 | `r1@x.com` | primary |
+| p1 | `r2@x.com` | reply-to |
+| p2 | `alice@a.com` | from |
 
 ---
 
@@ -245,5 +245,5 @@ Parties: **Alice only**. Multi local To are not external peers.
 
 ## Test hooks
 
-- Unit: `test/forward_headers.test.js`, `test/reply_tokens.test.js`  
+- Unit: [`test/forward_headers.test.js`](../test/forward_headers.test.js), [`test/reply_tokens.test.js`](../test/reply_tokens.test.js)  
 - Live: send S2-style mail → Show original → check `X-CFEG-Parties`
