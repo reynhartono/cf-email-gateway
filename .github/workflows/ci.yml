@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: lockfile + docs-reminder steps diff against the base.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax check
+        run: find src scripts -name '*.js' -o -name '*.mjs' | xargs node --check
+
+      - name: Unit tests
+        # `npm test` relies on shell glob expansion of test/**/*.test.js;
+        # find-based discovery runs the full suite on every shell.
+        run: find test -name '*.test.js' -print0 | xargs -0 node --test
+
+      - name: Routing example validation
+        # Example YAML must parse under the production loader + honor the
+        # no-top-level-aliases (Q42) lock. See scripts/ci-routing-lint.mjs.
+        run: node scripts/ci-routing-lint.mjs
+
+      - name: Worker dry-run
+        # Placeholder-only wrangler.toml.example must still bundle.
+        # Catches bad imports and entry wiring (e.g. a second /health
+        # outside src/index.js, or the example YAML pulled into the bundle).
+        run: |
+          cp wrangler.toml.example wrangler.toml
+          npx wrangler deploy --dry-run
+
+      - name: Structural guards
+        run: |
+          set -e
+          # Q41: runtime config is the ROUTING_YAML secret; the Worker must
+          # never import the example file and there is no example fallback.
+          if grep -rn "routing\.example\.yaml\|ALLOW_EXAMPLE_ROUTING" src/; then
+            echo "::error::src/ must not reference the example routing file (Q41)"
+            exit 1
+          fi
+          # GET /health is owned by src/index.js only — it reports routing_ok.
+          owners=$(grep -rln '"/health"' src/)
+          if [ "$owners" != "src/index.js" ]; then
+            echo "::error::/health route must live in src/index.js only (found: $owners)"
+            exit 1
+          fi
+
+      - name: Public hygiene
+        run: |
+          set -e
+          tracked=$(git ls-files)
+          # Local/live files are gitignored and must never be tracked.
+          for p in wrangler.toml wrangler.local.toml .dev.vars .dev.vars.local \
+              config/routing.yaml config/routing.local.yaml config/routing.local.yml; do
+            if echo "$tracked" | grep -Fxq "$p"; then
+              echo "::error::local file must not be tracked: $p"
+              exit 1
+            fi
+          done
+          if echo "$tracked" | grep -E '\.eml$'; then
+            echo "::error::real mail dumps (*.eml) must not be committed"
+            exit 1
+          fi
+          if grep -rn --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.wrangler \
+              -E 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' .; then
+            echo "::error::private key material in tree"
+            exit 1
+          fi
+
+      - name: PR title convention
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|ci|chore|refactor|test|perf|build)(\(.+\))?!?: .+' \
+            || { echo "::error::PR title must follow Conventional Commits (e.g. 'ci: add PR checks')"; exit 1; }
+
+      - name: Lockfile churn guard
+        if: github.event_name == 'pull_request'
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if git diff --name-only "$base...HEAD" -- package-lock.json | grep -q .; then
+            if ! git diff --name-only "$base...HEAD" -- package.json | grep -q .; then
+              echo "::error::package-lock.json changed without package.json — restore it unless deps intentionally changed"
+              exit 1
+            fi
+          fi
+
+      - name: Docs contract reminders
+        # Non-blocking: auth-gate and SMTP mapping changes should travel
+        # with their contract docs + regression tests.
+        if: github.event_name == 'pull_request'
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          changed=$(git diff --name-only "$base...HEAD")
+          if echo "$changed" | grep -qE '^src/(reply_tokens|pipeline|identity)\.js$'; then
+            echo "$changed" | grep -qx 'docs/13-delivery-and-reply.md' \
+              || echo "::warning::reply/auth-gate change without docs/13-delivery-and-reply.md"
+          fi
+          if echo "$changed" | grep -qE '^src/providers/smtp\.js$'; then
+            echo "$changed" | grep -qx 'docs/12-providers.md' \
+              || echo "::warning::SMTP mapping change without docs/12-providers.md"
+          fi
