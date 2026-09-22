@@ -70,9 +70,12 @@ jobs:
           # GET /health is owned by src/index.js only — it reports routing_ok.
           # Same-line path + pathname pairing, so prose mentions of /health
           # (comments, docs strings) don't count, whatever the quotes.
-          owners=$(grep -rln --include='*.js' -e 'pathname.*/health' -e '/health.*pathname' src/ || true)
+          # Covers .js and .mjs; a route split across lines would need a
+          # style change to match — the error below says where to look.
+          owners=$(grep -rln --include='*.js' --include='*.mjs' -e 'pathname.*/health' -e '/health.*pathname' src/ || true)
           if [ -z "$owners" ]; then
-            echo "::error::/health route not found in src/ (expected src/index.js)"
+            mentions=$(grep -rln --include='*.js' --include='*.mjs' '/health' src/ | tr '\n' ' ' || true)
+            echo "::error::/health route not found in src/ as a same-line pathname comparison (expected src/index.js; files mentioning /health: ${mentions:-none})"
             exit 1
           fi
           if [ "$owners" != "src/index.js" ]; then

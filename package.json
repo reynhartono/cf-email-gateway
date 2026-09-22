@@ -6,7 +6,7 @@
   "description": "Cloudflare Email Routing gateway \u2014 archive, cf_forward + X-CFEG tokens, SMTP compose / send-proxy / reply-hop",
   "scripts": {
     "test": "node --test 'test/**/*.test.js'",
-    "check": "node --check src/index.js && npm test",
+    "check": "find src scripts \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check && npm test",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "db:local": "wrangler d1 migrations apply cf-email-gateway --local",
