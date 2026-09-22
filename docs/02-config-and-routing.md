@@ -144,38 +144,8 @@ The single-label local **`r`** is reserved for reply-token grammar (`r+TOKEN@ape
 - Put **longer / more specific** prefixes **before** shorter ones in YAML (first match in tier 2 wins).
 - Empty `value` never matches.
 - Multi-person / shared privacy domains: set **`skip_default_inbox: true`** on person rules or operator inbox is still merged.
-- **Outbound** (compose / send-proxy / reply hop): same bare + `person.` shapes via `identities[].can_send_as` — see `docs/20-identities.md`.
+- **Outbound** mailbox shapes (compose / send-proxy / reply hop) are SoT in `docs/20-identities.md` (`can_send_as`, same trailing-`.` lock, glue/reserved denies).
 
-### Multi-person privacy pattern (synthetic)
+### Multi-person privacy pattern
 
-Person owns a local-part namespace on one apex — **not** per-person subdomains:
-
-```yaml
-rules:
-  - id: alice-ns
-    skip_default_inbox: true
-    match:
-      type: local_part_prefix
-      value: "alice."
-      domain: example.com
-    destinations:
-      - email: alice@gmail.com
-
-  - id: bob-ns
-    skip_default_inbox: true
-    match:
-      type: local_part_prefix
-      value: "bob."
-      domain: example.com
-    destinations:
-      - email: bob@gmail.com
-
-  - id: example-unknown
-    skip_default_inbox: true
-    match: { type: catch_all, value: example.com }
-    destinations: []   # archive / ingest-only — do not spill to operator default_inbox
-```
-
-Addresses: `alice.netflix@example.com` → Alice; `bob.github@example.com` → Bob.  
-Bare vanity `alice@example.com` needs a separate `address` rule (prefix `alice.` does not match it).  
-See also `docs/19-multi-person-routing.md`.
+SoT: `docs/19-multi-person-routing.md` (namespaces, rule pairs, catch_all policy) + `docs/20-identities.md` (outbound ACL). This doc owns match tiers + normalize only — do not add person tables here.
