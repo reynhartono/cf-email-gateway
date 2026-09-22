@@ -2,6 +2,8 @@ name: ci
 
 on:
   pull_request:
+    # Code changes only — not labels, assignees, or review requests.
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
@@ -19,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history: lockfile + docs-reminder steps diff against the base.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -108,7 +110,7 @@ jobs:
           fi
 
       - name: PR title convention
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
@@ -116,7 +118,7 @@ jobs:
             || { echo "::error::PR title must follow Conventional Commits (e.g. 'ci: add PR checks')"; exit 1; }
 
       - name: Lockfile churn guard
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           if git diff --name-only "$base...HEAD" -- package-lock.json | grep -q .; then
@@ -129,7 +131,7 @@ jobs:
       - name: Docs contract reminders
         # Non-blocking: auth-gate and SMTP mapping changes should travel
         # with their contract docs + regression tests.
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           changed=$(git diff --name-only "$base...HEAD")
