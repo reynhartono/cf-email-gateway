@@ -75,6 +75,7 @@ jobs:
           owners=$(grep -rln --include='*.js' --include='*.mjs' -e 'pathname.*/health' -e '/health.*pathname' src/ || true)
           if [ -z "$owners" ]; then
             mentions=$(grep -rln --include='*.js' --include='*.mjs' '/health' src/ | tr '\n' ' ' || true)
+            mentions="${mentions% }"
             echo "::error::/health route not found in src/ as a same-line pathname comparison (expected src/index.js; files mentioning /health: ${mentions:-none})"
             exit 1
           fi
@@ -111,7 +112,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|ci|chore|refactor|test|perf|build|revert)(\(.+\))?!?: .+' \
+          echo "$PR_TITLE" | grep -qE '^(feat|fix|docs|style|ci|chore|refactor|test|perf|build|revert)(\(.+\))?!?: .+' \
             || { echo "::error::PR title must follow Conventional Commits (e.g. 'ci: add PR checks')"; exit 1; }
 
       - name: Lockfile churn guard
@@ -139,4 +140,12 @@ jobs:
           if echo "$changed" | grep -qE '^src/providers/smtp\.js$'; then
             echo "$changed" | grep -qx 'docs/12-providers.md' \
               || echo "::warning::SMTP mapping change without docs/12-providers.md"
+          fi
+          if echo "$changed" | grep -qx 'src/send_proxy.js'; then
+            echo "$changed" | grep -qx 'docs/17-send-proxy.md' \
+              || echo "::warning::send-proxy change without docs/17-send-proxy.md"
+          fi
+          if echo "$changed" | grep -qx 'src/compose.js'; then
+            echo "$changed" | grep -qx 'docs/06-ops.md' \
+              || echo "::warning::compose change without docs/06-ops.md"
           fi
