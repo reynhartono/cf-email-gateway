@@ -19,7 +19,7 @@ compose:
 reply_tokens:
   enabled: true
 defaults:
-  provider: smtp
+  provider: smtp   # legacy label; with a providers: map this names the default sender
   send_as:
     enabled: false
     multiparty: true
@@ -89,6 +89,14 @@ rules:
 4. **`defaults.display_name`** — global fallback  
 
 **`catch_all` rules are ignored** for From display. A matched address/prefix rule **without** `display_name` does not block fallthrough to domain/defaults. Values cannot contain header control characters.
+
+## providers (named outbound senders)
+
+Optional `providers:` map for per-domain senders (domain A → provider X,
+domain B → provider Y). Selection per send off the final From apex:
+`domains.<apex>.provider` → `defaults.provider` (required with the map).
+Any `config` string may be a literal or a whole-value `${SECRET_NAME}` ref.
+Full contract: [12-providers.md](./12-providers.md).
 
 ## resolve_driver
 

@@ -37,6 +37,24 @@ defaults:
     multiparty: true
   reply_as: {}
 
+# Named outbound SMTP providers (per-domain senders): domain A → provider X,
+# domain B → provider Y. Selection: domains.<apex>.provider → defaults.provider.
+# Without this map, the legacy global SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD
+# env path applies and defaults.provider keeps its old driver label.
+# Any string in `config` may be a literal or a whole-value ${SECRET_NAME} ref
+# resolved from Worker secrets at send time (missing/empty fails closed).
+# Whole-value only — no partial expansion. `$${NAME}` escapes to a literal
+# `${NAME}`. Quote refs inside { } flow mappings (`tls: '${TLS_MODE}'`).
+# providers:
+#   main:
+#     kind: smtp   # only smtp in this cut; unknown kinds fail closed
+#     config:
+#       host: mail.example.com
+#       port: 465   # default 465; same fail-closed TLS port map, per provider
+#       # tls: starttls   # optional: on | starttls (overrides the port default)
+#       username: ${SMTP_MAIN_USERNAME}
+#       password: ${SMTP_MAIN_PASSWORD}
+
 # Who may use r+ reply hop and send-proxy (Gmail From + CF auth evidence).
 # Prefer identities[] for multi-person ACL (docs/20); this list still merges in.
 token_auth:
@@ -58,10 +76,12 @@ token_auth:
 
 # Per receiving apex. Unlisted domains still use the gateway + defaults.
 # Enable send_as for outbound From / send-proxy / reply hop on that apex.
+# Optional per-apex sender: provider: <name> (overrides defaults.provider).
 domains:
   example.com:
     send_as:
       enabled: true
+    # provider: main   # needs the providers: map above
     reply_as: {}
     # display_name: Example Co   # Q42 domain default From when no rule name
 

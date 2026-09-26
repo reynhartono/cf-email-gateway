@@ -242,12 +242,13 @@ Not required for archive/forward/compose/send-proxy.
 
 | Secret | Required for |
 |--------|----------------|
-| `ROUTING_YAML` | All routing / tokens / send_as |
-| `SMTP_HOST` | Compose, send-proxy, reply hop, smtp-selftest |
+| `ROUTING_YAML` | All routing / tokens / send_as / provider selection |
+| `SMTP_HOST` | Legacy single-provider path: compose, send-proxy, reply hop, smtp-selftest |
 | `SMTP_USERNAME` | same |
 | `SMTP_PASSWORD` | same |
 | `SMTP_PORT` | optional (default 465; unknown ports fail closed unless `SMTP_TLS` is set) |
 | `SMTP_TLS` | optional (`on` \| `starttls` — explicit override for rare ports) |
+| `SMTP_<NAME>_USERNAME` / `SMTP_<NAME>_PASSWORD` (your names) | Named-provider path: one secret per `${SECRET_NAME}` ref in `providers:` (e.g. `SMTP_MAIN_USERNAME`, `SMTP_MAIN_PASSWORD`); missing/empty fails that provider closed |
 | `COMPOSE_API_TOKEN` | `/v1/compose`, `/v1/smtp-selftest` |
 
 Breaking change: ports 25 and 80 now hard-error instead of connecting in plaintext — a plaintext-only relay on port 25 will break on upgrade (setting `SMTP_TLS` will not help unless the server actually speaks TLS there).

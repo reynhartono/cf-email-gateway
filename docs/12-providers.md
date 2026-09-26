@@ -7,6 +7,80 @@
 
 Secrets: `SMTP_HOST`, `SMTP_USERNAME` (or `SMTP_USER`), `SMTP_PASSWORD` (or `SMTP_PASS`), optional `SMTP_PORT` (default 465), optional `SMTP_TLS` (`on` | `starttls` for rare ports).
 
+That global set is the **legacy path**: it applies when the routing config has
+no `providers:` map. With a map, each provider carries its own connection
+fields and the legacy globals are ignored for sends.
+
+## Named providers (per-domain senders)
+
+```yaml
+providers:
+  main:
+    kind: smtp   # only smtp in this cut; unknown kinds fail closed at load
+    config:
+      host: mail.example.com
+      port: 465
+      username: ${SMTP_MAIN_USERNAME}
+      password: ${SMTP_MAIN_PASSWORD}
+  other:
+    kind: smtp
+    config:
+      host: smtp.other.example.com
+      port: 587
+      username: plain-user
+      password: ${SMTP_OTHER_PASSWORD}
+defaults:
+  provider: main
+domains:
+  example.com:
+    send_as: { enabled: true }
+    provider: main
+  other.example.com:
+    send_as: { enabled: true }
+    provider: other
+```
+
+Selection for every outbound send (compose, send-proxy, reply hop) is read off
+the final MIME From apex: `domains.<apex>.provider` → `defaults.provider`
+(which is required when the map is present). Unknown names fail closed at
+load (`routing_ok:false`); there is no silent fallback to another provider or
+to the legacy globals. The resolved provider **name** (never secrets) is
+recorded per send — `delivery_targets.provider`, attempt rows, and the
+compose/selftest JSON `provider` field.
+
+`defaults.provider` previously carried the delivery-driver label (`smtp`); it
+now names a key in `providers:`. Migration: configs without a `providers:` map
+keep working on the legacy path, but once you add the map an old
+`provider: smtp` label is read as a selection — rename it or name a provider
+`smtp`.
+
+### `${SECRET_NAME}` references
+
+Any string in a provider `config` may be a literal or a **whole-value**
+`${SECRET_NAME}` reference resolved from Worker secrets (e.g. wrangler
+secrets) at send time:
+
+- Whole-value only — `smtp.${DOMAIN}` does not expand and stays literal (it
+  will fail validation where a hostname is expected).
+- `NAME` must match `[A-Za-z_][A-Za-z0-9_]*`. Empty, malformed, or unclosed
+  `${...}` in whole-value position is a load-time config error — a typo'd
+  reference never silently becomes a literal password.
+- `$${NAME}` escapes to the literal string `${NAME}`.
+- A ref pointing at a missing/empty/whitespace-only secret fails that
+  provider closed **before connect** — never an empty credential on the wire.
+- Refs resolve before per-provider validation, so env-sourced values face the
+  same rules (port map, `tls` enum).
+- Logs, `/health`, and diagnostics report presence booleans only (e.g. the
+  selftest `present` block) — never credential values or resolved secrets.
+
+YAML quoting: block-style `password: ${NAME}` is a plain scalar and parses
+as-is, but inside `{ }` **flow** mappings the braces confuse the parser —
+quote there (`tls: '${TLS_MODE}'`).
+
+Guidance: `${SECRET_NAME}` is the default for any routing YAML stored in
+version control. Literals fit only when the YAML itself is injected as the
+`ROUTING_YAML` secret and never committed.
+
 ```bash
 printf '%s' 'mail.example.com' | npx wrangler secret put SMTP_HOST
 printf '%s' 'smtp-user'        | npx wrangler secret put SMTP_USERNAME
