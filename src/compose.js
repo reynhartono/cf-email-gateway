@@ -94,7 +94,7 @@ export async function handleCompose(request, env, config) {
     html: body.html,
     headers: body.headers,
     attachments: attachments.length ? attachments : undefined,
-  });
+  }, config);
 
   const id = randomId();
   if (!result.ok) {
@@ -107,6 +107,7 @@ export async function handleCompose(request, env, config) {
         compose_id: id,
         mail_from: resolved.mailFrom,
         identity: caller.identity.id,
+        provider: result.provider ?? null,
         provider_status: result.providerStatus,
       },
       status,
@@ -118,6 +119,7 @@ export async function handleCompose(request, env, config) {
     compose_id: id,
     mail_from: resolved.mailFrom,
     identity: caller.identity.id,
+    provider: result.provider ?? "smtp",
     provider_message_id: result.providerMessageId,
   });
 }
@@ -156,9 +158,14 @@ async function handleSmtpSelftest(request, env, config) {
     SMTP_PASSWORD: Boolean(env.SMTP_PASSWORD || env.SMTP_PASS),
     SMTP_PORT: env.SMTP_PORT || "465",
     hasSmtp: hasSmtp(env),
+    // Named providers (issue #37) resolve creds from referenced secrets,
+    // so the global SMTP_* presence above may be false while sends work.
+    hasProviders: Boolean(
+      config?.providers && Object.keys(config.providers).length,
+    ),
   };
 
-  if (!present.hasSmtp) {
+  if (!present.hasSmtp && !present.hasProviders) {
     return json(
       {
         ok: false,
@@ -232,12 +239,13 @@ async function handleSmtpSelftest(request, env, config) {
     mailFrom: from,
     to,
     mimeText: mime,
-  });
+  }, config);
 
   return json({
     ok: Boolean(result.ok),
     present,
     transport: result.transport,
+    provider: result.provider ?? null,
     provider_message_id: result.providerMessageId,
     error: result.error || null,
     to,

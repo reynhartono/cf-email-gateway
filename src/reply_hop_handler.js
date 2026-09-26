@@ -253,7 +253,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       fromName: fromDisplay || mailbox,
       to: t.destination,
       mimeText: mimeOut,
-    });
+    }, config);
     const finished = Date.now();
     await db.insertAttempt(env.DB, {
       id: randomId(),
@@ -266,7 +266,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       success: result.ok,
       error: result.error || null,
       method: "provider_send",
-      provider: "smtp",
+      provider: result.provider ?? "smtp",
       send_as: mailFrom,
       provider_message_id: result.providerMessageId || null,
       provider_status:
@@ -277,6 +277,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       await db.updateTarget(env.DB, t.id, {
         state: "succeeded",
         attempt_count: attemptNumber,
+        provider: result.provider ?? "smtp",
         last_error: null,
         last_provider_message_id: result.providerMessageId || null,
         last_attempt_at: finished,

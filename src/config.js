@@ -4,6 +4,7 @@
 
 import YAML from "yaml";
 import { normalizeIdentities } from "./identity.js";
+import { assertRefShapes, classifyRef } from "./providers/provider_refs.js";
 import {
   isReservedPersonLocal,
   matchClaimsReservedLocal,
@@ -98,6 +99,78 @@ function normalizeSendAs(sa) {
 }
 
 /**
+ * Named outbound providers (issue #37): `providers.<name>` with `kind` +
+ * kind-specific `config`. `kind` and provider names are always literals;
+ * any string inside `config` may be a literal or a whole-value
+ * `${SECRET_NAME}` reference (resolved against env at send time).
+ *
+ * This cut supports `kind: smtp` only — unknown kinds fail closed so a
+ * future sender type cannot silently ride on the SMTP path. `config`
+ * schemas are strict per kind: unknown fields are rejected.
+ *
+ * @param {unknown} raw
+ * @returns {object | undefined} — normalized map, or undefined when absent.
+ */
+function normalizeProviders(raw) {
+  if (raw == null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("routing config: providers must be a mapping");
+  }
+  const out = {};
+  for (const [name, p] of Object.entries(raw)) {
+    const where = `providers.${name}`;
+    if (!p || typeof p !== "object" || Array.isArray(p)) {
+      throw new Error(`routing config: ${where} must be a mapping`);
+    }
+    if (p.kind !== "smtp") {
+      throw new Error(
+        `routing config: ${where}.kind must be "smtp" (got ${JSON.stringify(p.kind ?? null)})`,
+      );
+    }
+    const cfg = p.config;
+    if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) {
+      throw new Error(`routing config: ${where}.config must be a mapping`);
+    }
+    const known = new Set(["host", "port", "tls", "username", "password"]);
+    for (const k of Object.keys(cfg)) {
+      if (!known.has(k)) {
+        throw new Error(`routing config: ${where}.config: unknown field ${JSON.stringify(k)}`);
+      }
+    }
+    // host is the only non-secret field that must always be present
+    // (as a literal or a ${REF} — resolution happens at send time).
+    if (cfg.host == null || String(cfg.host).trim() === "") {
+      throw new Error(`routing config: ${where}.config.host required`);
+    }
+    // No unauthenticated providers: both auth fields required, either as
+    // non-empty literals or ${REF}s (missing env fails closed at send).
+    for (const f of ["username", "password"]) {
+      if (cfg[f] == null || String(cfg[f]).trim() === "") {
+        throw new Error(`routing config: ${where}.config.${f} required`);
+      }
+    }
+    // Literal tls values must already be valid; ${REF}s are checked
+    // against the same enum after resolution at send time (fail closed).
+    if (cfg.tls != null && cfg.tls !== "") {
+      const c = classifyRef(cfg.tls, `${where}.config.tls`);
+      if (c.kind === "literal") {
+        const v = String(cfg.tls).trim().toLowerCase();
+        if (v !== "on" && v !== "starttls") {
+          throw new Error(
+            `routing config: ${where}.config.tls must be "on" or "starttls"`,
+          );
+        }
+      }
+    }
+    // Reference shapes for every string leaf (malformed whole-value
+    // `${...}` never silently becomes a literal password).
+    assertRefShapes(cfg, `${where}.config`);
+    out[name] = { kind: "smtp", config: { ...cfg } };
+  }
+  return out;
+}
+
+/**
  * Optional rule.display_name for outbound MIME From (Q42).
  * @param {unknown} raw
  * @param {string} where
@@ -139,6 +212,24 @@ function normalizeRule(rule, index) {
  */
 export function normalizeConfig(raw) {
   const defaults = raw.defaults ?? {};
+  const providers = normalizeProviders(raw.providers);
+  const providerNames = providers ? new Set(Object.keys(providers)) : null;
+  // Breaking change (issue #37): with a `providers:` map, `provider`
+  // names a key in that map everywhere. Without one, the legacy global
+  // SMTP_* env path applies and `defaults.provider` keeps its old label.
+  if (providerNames) {
+    const dp = defaults.provider;
+    if (dp == null || String(dp).trim() === "") {
+      throw new Error(
+        "routing config: defaults.provider is required when providers: is present",
+      );
+    }
+    if (!providerNames.has(String(dp))) {
+      throw new Error(
+        `routing config: unknown provider ${JSON.stringify(String(dp))} in defaults.provider`,
+      );
+    }
+  }
   const sendAs = normalizeSendAs({
     enabled: false,
     multiparty: true,
@@ -160,6 +251,23 @@ export function normalizeConfig(raw) {
       const d = { ...v };
       if (d.send_as && typeof d.send_as === "object") {
         d.send_as = normalizeSendAs({ ...sendAs, ...d.send_as });
+      }
+      // Per-domain provider selection (issue #37): optional override of
+      // defaults.provider; unknown names fail closed at load.
+      if (d.provider != null && d.provider !== "") {
+        if (typeof d.provider !== "string" || !d.provider.trim()) {
+          throw new Error(
+            `routing config: domains.${k}.provider must be a non-empty string`,
+          );
+        }
+        if (providerNames && !providerNames.has(d.provider)) {
+          throw new Error(
+            `routing config: unknown provider ${JSON.stringify(d.provider)} in domains.${k}.provider`,
+          );
+        }
+        d.provider = d.provider.trim();
+      } else {
+        delete d.provider;
       }
       // Q42: optional domain-wide From display fallback
       const domName = d.display_name ?? d.displayName;
@@ -186,7 +294,8 @@ export function normalizeConfig(raw) {
     default_inbox: raw.default_inbox ?? undefined,
     archive: { enabled: archiveEnabled },
     defaults: {
-      provider: defaults.provider ?? "smtp",
+      provider:
+        providerNames != null ? String(defaults.provider).trim() : (defaults.provider ?? "smtp"),
       send_as: sendAs,
       reply_as: defaults.reply_as ?? {},
       ...(defaultsDisplay ? { display_name: defaultsDisplay } : {}),
@@ -208,6 +317,7 @@ export function normalizeConfig(raw) {
     rules: Array.isArray(raw.rules)
       ? raw.rules.map((r, i) => normalizeRule(r, i))
       : [],
+    ...(providers ? { providers } : {}),
   };
   assertNoReservedPersonLocal(config);
   return config;
@@ -243,6 +353,34 @@ export function replyTokensWanted(config, envelopeTo) {
   if (!FEATURES.reply_tokens_on_forward) return false;
   if (config.reply_tokens?.enabled === false) return false;
   return resolveSendAs(config, envelopeTo).enabled === true;
+}
+
+/**
+ * Select the named outbound provider for a final MIME From address
+ * (issue #37): `domains.<apex>.provider` → `defaults.provider`.
+ *
+ * @param {import('./config.js').RoutingConfig} config
+ * @param {string} mailFrom — already-resolved envelope From
+ * @returns {string | null} — provider name, or null for the legacy global
+ *   SMTP_* env path (no `providers:` map). Names are validated at load;
+ *   the re-check here is defense in depth (throws, never silent fallback).
+ */
+export function resolveProviderName(config, mailFrom) {
+  const providers = config?.providers;
+  if (providers == null) return null;
+  const names = Object.keys(providers);
+  if (!names.length) {
+    throw new Error("routing config: providers map is empty");
+  }
+  const apex = recipientDomain(mailFrom || "");
+  const selected =
+    (apex && config.domains?.[apex]?.provider) || config.defaults?.provider;
+  if (typeof selected !== "string" || !providers[selected]) {
+    throw new Error(
+      `routing config: unknown provider ${JSON.stringify(selected ?? null)} for ${apex || "(no domain)"}`,
+    );
+  }
+  return selected;
 }
 
 /**

@@ -3,6 +3,8 @@
  */
 
 import { smtpSend, hasSmtp, bareEmail } from "./smtp.js";
+import { resolveConfigRefs } from "./provider_refs.js";
+import { resolveProviderName } from "../config.js";
 import { formatSmtpMailbox } from "../reply_tokens.js";
 
 /** @typedef {{ code: string, message: string, name: string }} ComposeMimeErrorShape */
@@ -146,6 +148,37 @@ function formatAddressListHeader(label, v) {
 }
 
 /**
+ * Build the effective SMTP env for one named provider (issue #37):
+ * `${SECRET_NAME}` refs resolved against env, then overlaid onto the
+ * legacy SMTP_* keys the SMTP client already reads. Only the secret NAME
+ * (never its content) may appear in errors.
+ *
+ * @param {object} provider — normalized `providers.<name>` entry
+ * @param {string} name
+ * @param {object} env
+ * @returns {{ ok: true, env: object } | { ok: false, error: string }}
+ */
+function overlayProviderEnv(provider, name, env) {
+  const where = `providers.${name}.config`;
+  const resolved = resolveConfigRefs(provider?.config, env, where);
+  if (!resolved.ok) return resolved;
+  const cfg = resolved.config || {};
+  const overlay = {
+    ...env,
+    SMTP_HOST: cfg.host,
+    SMTP_USERNAME: cfg.username,
+    SMTP_PASSWORD: cfg.password,
+  };
+  if (cfg.port != null && String(cfg.port).trim() !== "") {
+    overlay.SMTP_PORT = cfg.port;
+  }
+  if (cfg.tls != null && String(cfg.tls).trim() !== "") {
+    overlay.SMTP_TLS = cfg.tls;
+  }
+  return { ok: true, env: overlay };
+}
+
+/**
  * @param {object} env
  * @param {{
  *   mailFrom: string,
@@ -161,8 +194,12 @@ function formatAddressListHeader(label, v) {
  *   headers?: Record<string, string>,
  *   attachments?: Array<{ filename: string, contentType?: string, content: string }>,
  * }} req
+ * @param {import('../config.js').RoutingConfig} [config] — when it carries a
+ *   `providers:` map, the provider is selected from the final mailFrom apex
+ *   (`domains.<apex>.provider` → `defaults.provider`); otherwise the legacy
+ *   global SMTP_* env path applies.
  */
-export async function sendOutboundMime(env, req) {
+export async function sendOutboundMime(env, req, config) {
   let mimeText =
     req.mimeText ||
     (req.rawMimeBase64
@@ -205,21 +242,77 @@ export async function sendOutboundMime(env, req) {
     };
   }
 
-  if (!hasSmtp(env)) {
+  // Named provider selection (issue #37). Without a `providers:` map —
+  // or when no config reaches this layer (unit tests) — the legacy
+  // global SMTP_* env path applies untouched.
+  let sendEnv = env;
+  let providerName = "smtp";
+  if (config?.providers) {
+    const sel = selectProviderEnv(config, req.mailFrom, env);
+    if (!sel.ok) {
+      return {
+        ok: false,
+        error: sel.error,
+        transport: "smtp",
+        provider: sel.name,
+      };
+    }
+    sendEnv = sel.env;
+    providerName = sel.name;
+  }
+
+  if (!hasSmtp(sendEnv)) {
     return {
       ok: false,
-      error:
-        "SMTP not configured (need SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD)",
+      error: hasSmtpError(providerName),
       transport: "smtp",
+      provider: providerName,
     };
   }
 
-  const result = await smtpSend(env, {
+  const result = await smtpSend(sendEnv, {
     mailFrom: req.mailFrom,
     to: toBare,
     mimeText,
   });
-  return { ...result, transport: "smtp" };
+  return { ...result, transport: "smtp", provider: providerName };
+}
+
+/**
+ * Select the named provider for a mailFrom and build its effective SMTP
+ * env (issue #37). Exported for unit tests; `sendOutboundMime` is the
+ * product path.
+ *
+ * @param {import('../config.js').RoutingConfig} config
+ * @param {string} mailFrom
+ * @param {object} env
+ * @returns {{ ok: true, name: string, env: object } | { ok: false, name: string | null, error: string }}
+ */
+export function selectProviderEnv(config, mailFrom, env) {
+  let selected;
+  try {
+    selected = resolveProviderName(config, mailFrom);
+  } catch (err) {
+    return { ok: false, name: null, error: err?.message || "unknown provider" };
+  }
+  if (selected == null) return { ok: true, name: "smtp", env };
+  const overlay = overlayProviderEnv(config.providers[selected], selected, env);
+  if (!overlay.ok) return { ok: false, name: selected, error: overlay.error };
+  return { ok: true, name: selected, env: overlay.env };
+}
+
+/**
+ * Missing-credential error naming the selected provider when one was
+ * selected (name only — never secret content).
+ */
+function hasSmtpError(providerName) {
+  if (providerName && providerName !== "smtp") {
+    return (
+      `SMTP not configured for provider "${providerName}" ` +
+      `(check its host/username/password or referenced secrets)`
+    );
+  }
+  return "SMTP not configured (need SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD)";
 }
 
 /**
