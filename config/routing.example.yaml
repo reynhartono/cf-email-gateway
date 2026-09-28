@@ -29,9 +29,9 @@ reply_tokens:
   enabled: true
 
 defaults:
-  # Operator-chosen name of a key under providers: (not the transport kind).
-  # Without a providers: map this field is ignored (legacy global SMTP_* path).
-  # provider: primary_submission
+  # Operator-chosen key under providers: (not the transport kind). Required
+  # when providers: is present. Outbound needs the map — no global SMTP_* path.
+  # provider: primary_smtp_server
   send_as:
     # false → inbound stays cf_forward (recommended)
     # true  → allows outbound From on domains that enable send_as
@@ -39,15 +39,13 @@ defaults:
     multiparty: true
   reply_as: {}
 
-# Named outbound senders (per-domain): domain A → provider X, domain B → Y.
-# Keys are operator-chosen IDs — not brands and not the transport kind.
-# Selection: domains.<apex>.provider → defaults.provider (required when the
-# map is present). Without this map, legacy SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD
-# applies. Any string in config may be a literal or whole-value ${SECRET_NAME}
-# ref (missing/empty fails closed). `$${NAME}` → literal `${NAME}`. Quote refs
-# inside { } flow mappings (`tls: '${TLS_MODE}'`).
+# Named outbound senders. Keys are operator-chosen IDs — not brands and not
+# kind. Selection: domains.<apex>.provider → defaults.provider. Without this
+# map, compose / send-proxy / reply-hop fail closed. Any config string may be
+# a literal or whole-value ${SECRET_NAME} ref. `$${NAME}` → literal `${NAME}`.
+# Quote refs inside { } flow mappings (`tls: '${TLS_MODE}'`).
 # providers:
-#   primary_submission:
+#   primary_smtp_server:
 #     kind: smtp   # transport kind only; unknown kinds fail closed
 #     config:
 #       host: mail.example.com
@@ -55,13 +53,6 @@ defaults:
 #       # tls: starttls   # optional: on | starttls (overrides the port default)
 #       username: ${SMTP_PRIMARY_USERNAME}
 #       password: ${SMTP_PRIMARY_PASSWORD}
-#   alt_submission:
-#     kind: smtp
-#     config:
-#       host: smtp.other.example.com
-#       port: 587
-#       username: ${SMTP_ALT_USERNAME}
-#       password: ${SMTP_ALT_PASSWORD}
 
 # Who may use r+ reply hop and send-proxy (Gmail From + CF auth evidence).
 # Prefer identities[] for multi-person ACL (docs/20); this list still merges in.
@@ -89,7 +80,7 @@ domains:
   example.com:
     send_as:
       enabled: true
-    # provider: primary_submission   # needs the providers: map above
+    # provider: primary_smtp_server   # needs the providers: map above
     reply_as: {}
     # display_name: Example Co   # Q42 domain default From when no rule name
 
@@ -97,7 +88,6 @@ domains:
     send_as:
       enabled: true
       domain: example.com  # hello@other.example → From hello@example.com
-    # provider: alt_submission
     reply_as:
       domain: example.com
 

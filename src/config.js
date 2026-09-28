@@ -311,8 +311,11 @@ export function normalizeConfig(raw) {
     default_inbox: raw.default_inbox ?? undefined,
     archive: { enabled: archiveEnabled },
     defaults: {
-      provider:
-        providerNames != null ? String(defaults.provider).trim() : (defaults.provider ?? "smtp"),
+      // Only set when providers: is present (operator-chosen ID). Without
+      // the map, outbound is unavailable — no legacy "smtp" driver label.
+      ...(providerNames != null
+        ? { provider: String(defaults.provider).trim() }
+        : {}),
       send_as: sendAs,
       reply_as: defaults.reply_as ?? {},
       ...(defaultsDisplay ? { display_name: defaultsDisplay } : {}),
@@ -378,16 +381,17 @@ export function replyTokensWanted(config, envelopeTo) {
  *
  * @param {import('./config.js').RoutingConfig} config
  * @param {string} mailFrom — already-resolved envelope From
- * @returns {string | null} — provider name, or null for the legacy global
- *   SMTP_* env path (no `providers:` map). Names are validated at load;
- *   the re-check here is defense in depth (throws, never silent fallback).
+ * @returns {string} — provider name. Requires a non-empty `providers:` map
+ *   (legacy global SMTP_* path removed). Names are validated at load; the
+ *   re-check here is defense in depth (throws, never silent fallback).
  */
 export function resolveProviderName(config, mailFrom) {
   const providers = config?.providers;
-  if (providers == null) return null;
-  const names = Object.keys(providers);
-  if (!names.length) {
-    throw new Error("routing config: providers map is empty");
+  if (providers == null || !Object.keys(providers).length) {
+    throw new Error(
+      "routing config: providers: map required for outbound " +
+        "(legacy global SMTP_* path removed)",
+    );
   }
   // Bare-normalize first: display/angle-addr From must not yield apex
   // "example.com>" and skip domains.<apex>.provider (issue #37 review).

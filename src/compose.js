@@ -8,7 +8,7 @@ import {
   assertNoHeaderControlChars,
   sendOutboundMime,
 } from "./providers/send_outbound.js";
-import { bareEmail, hasSmtp } from "./providers/smtp.js";
+import { bareEmail } from "./providers/smtp.js";
 import { randomId } from "./util.js";
 import {
   identityMaySendAs,
@@ -153,25 +153,22 @@ async function handleSmtpSelftest(request, env, config) {
   if (authErr) return authErr;
 
   const present = {
-    SMTP_HOST: Boolean(env.SMTP_HOST),
-    SMTP_USERNAME: Boolean(env.SMTP_USERNAME || env.SMTP_USER),
-    SMTP_PASSWORD: Boolean(env.SMTP_PASSWORD || env.SMTP_PASS),
-    SMTP_PORT: env.SMTP_PORT || "465",
-    hasSmtp: hasSmtp(env),
-    // Named providers (issue #37) resolve creds from referenced secrets,
-    // so the global SMTP_* presence above may be false while sends work.
     hasProviders: Boolean(
       config?.providers && Object.keys(config.providers).length,
     ),
+    providerNames: config?.providers
+      ? Object.keys(config.providers)
+      : [],
+    defaultsProvider: config?.defaults?.provider ?? null,
   };
 
-  if (!present.hasSmtp && !present.hasProviders) {
+  if (!present.hasProviders) {
     return json(
       {
         ok: false,
-        error: "SMTP secrets missing",
+        error: "providers: map missing in routing config",
         present,
-        hint: "SMTP_HOST + SMTP_USERNAME + SMTP_PASSWORD",
+        hint: "add providers: + defaults.provider; put host/user/pass under config (use ${SECRET} refs)",
       },
       503,
     );

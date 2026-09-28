@@ -8,7 +8,6 @@ compose:
 reply_tokens:
   enabled: true
 defaults:
-  provider: smtp
   send_as:
     enabled: false
     multiparty: true

@@ -222,10 +222,10 @@ function overlayProviderEnv(provider, name, env) {
  *   headers?: Record<string, string>,
  *   attachments?: Array<{ filename: string, contentType?: string, content: string }>,
  * }} req
- * @param {import('../config.js').RoutingConfig} [config] — when it carries a
- *   `providers:` map, the provider is selected from the final mailFrom apex
- *   (`domains.<apex>.provider` → `defaults.provider`); otherwise the legacy
- *   global SMTP_* env path applies.
+ * @param {import('../config.js').RoutingConfig} [config] — outbound requires a
+ *   `providers:` map; selection is `domains.<apex>.provider` →
+ *   `defaults.provider`. The low-level SMTP client still reads SMTP_* keys
+ *   on the *resolved* overlay env only (never a free-standing global path).
  */
 export async function sendOutboundMime(env, req, config) {
   let mimeText =
@@ -270,24 +270,29 @@ export async function sendOutboundMime(env, req, config) {
     };
   }
 
-  // Named provider selection (issue #37). Without a `providers:` map —
-  // or when no config reaches this layer (unit tests) — the legacy
-  // global SMTP_* env path applies untouched.
-  let sendEnv = env;
-  let providerName = "smtp";
-  if (config?.providers) {
-    const sel = selectProviderEnv(config, req.mailFrom, env);
-    if (!sel.ok) {
-      return {
-        ok: false,
-        error: sel.error,
-        transport: "smtp",
-        provider: sel.name,
-      };
-    }
-    sendEnv = sel.env;
-    providerName = sel.name;
+  // Named providers only (issue #37 scrub): no free-standing global SMTP_* path.
+  if (!config?.providers || !Object.keys(config.providers).length) {
+    return {
+      ok: false,
+      error:
+        "outbound requires providers: map in routing config " +
+        "(legacy global SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD path removed)",
+      transport: "smtp",
+      provider: null,
+    };
   }
+
+  const sel = selectProviderEnv(config, req.mailFrom, env);
+  if (!sel.ok) {
+    return {
+      ok: false,
+      error: sel.error,
+      transport: "smtp",
+      provider: sel.name,
+    };
+  }
+  const sendEnv = sel.env;
+  const providerName = sel.name;
 
   if (!hasSmtp(sendEnv)) {
     return {
@@ -317,30 +322,38 @@ export async function sendOutboundMime(env, req, config) {
  * @returns {{ ok: true, name: string, env: object } | { ok: false, name: string | null, error: string }}
  */
 export function selectProviderEnv(config, mailFrom, env) {
+  if (!config?.providers || !Object.keys(config.providers).length) {
+    return {
+      ok: false,
+      name: null,
+      error:
+        "outbound requires providers: map in routing config " +
+        "(legacy global SMTP_* path removed)",
+    };
+  }
   let selected;
   try {
     selected = resolveProviderName(config, mailFrom);
   } catch (err) {
     return { ok: false, name: null, error: err?.message || "unknown provider" };
   }
-  if (selected == null) return { ok: true, name: "smtp", env };
   const overlay = overlayProviderEnv(config.providers[selected], selected, env);
   if (!overlay.ok) return { ok: false, name: selected, error: overlay.error };
   return { ok: true, name: selected, env: overlay.env };
 }
 
 /**
- * Missing-credential error naming the selected provider when one was
- * selected (name only — never secret content).
+ * Missing-credential error naming the selected provider (name only —
+ * never secret content).
  */
 function hasSmtpError(providerName) {
-  if (providerName && providerName !== "smtp") {
+  if (providerName) {
     return (
       `SMTP not configured for provider "${providerName}" ` +
       `(check its host/username/password or referenced secrets)`
     );
   }
-  return "SMTP not configured (need SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD)";
+  return "SMTP not configured (providers: map required)";
 }
 
 /**

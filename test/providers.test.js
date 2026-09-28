@@ -163,10 +163,10 @@ describe("providers config load", () => {
     assert.equal(c.domains["other.example.com"].provider, "other");
   });
 
-  it("keeps legacy configs without providers: untouched", () => {
+  it("omits defaults.provider when providers: is absent", () => {
     const c = load("version: 1\ndefault_inbox: me@gmail.com\n");
     assert.equal(c.providers, undefined);
-    assert.equal(c.defaults.provider, "smtp");
+    assert.equal(c.defaults.provider, undefined);
   });
 
   it("rejects unknown kinds", () => {
@@ -307,9 +307,12 @@ describe("resolveProviderName", () => {
     );
   });
 
-  it("returns null for legacy configs (global SMTP_* path)", () => {
+  it("throws when providers: map is missing (no legacy global path)", () => {
     const c = load("version: 1\ndefault_inbox: me@gmail.com\n");
-    assert.equal(resolveProviderName(c, "shops@example.com"), null);
+    assert.throws(
+      () => resolveProviderName(c, "shops@example.com"),
+      /providers:\s*map required|requires providers:/,
+    );
   });
 
   it("throws instead of silently falling back", () => {
@@ -437,13 +440,13 @@ providers:
     assert.match(r.error, /secret SMTP_MAIN_USERNAME/);
   });
 
-  it("passes legacy configs through to the global env", () => {
+  it("fails closed without providers: map (no legacy global env path)", () => {
     const c = load("version: 1\ndefault_inbox: me@gmail.com\n");
     const env = { SMTP_HOST: "h", SMTP_USERNAME: "u", SMTP_PASSWORD: "p" };
     const r = selectProviderEnv(c, "shops@example.com", env);
-    assert.equal(r.ok, true);
-    assert.equal(r.name, "smtp");
-    assert.equal(r.env, env);
+    assert.equal(r.ok, false);
+    assert.equal(r.name, null);
+    assert.match(r.error, /providers:\s*map required|requires providers:/);
   });
 });
 
@@ -463,11 +466,14 @@ describe("sendOutboundMime provider integration", () => {
     assert.match(r.error, /secret SMTP_MAIN_USERNAME/);
   });
 
-  it("keeps the legacy path (and provider label) without config", async () => {
-    const r = await sendOutboundMime({}, REQ);
+  it("fails closed without providers: even if global SMTP_* env is set", async () => {
+    const r = await sendOutboundMime(
+      { SMTP_HOST: "h", SMTP_USERNAME: "u", SMTP_PASSWORD: "p" },
+      REQ,
+    );
     assert.equal(r.ok, false);
-    assert.equal(r.provider, "smtp");
-    assert.match(r.error, /SMTP not configured/);
+    assert.equal(r.provider, null);
+    assert.match(r.error, /providers:\s*map required|requires providers:/);
   });
 
   it("does not leak secret values through result errors", async () => {
