@@ -119,7 +119,7 @@ export async function handleCompose(request, env, config) {
     compose_id: id,
     mail_from: resolved.mailFrom,
     identity: caller.identity.id,
-    provider: result.provider ?? "smtp",
+    provider: result.provider ?? null,
     provider_message_id: result.providerMessageId,
   });
 }

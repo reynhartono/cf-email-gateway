@@ -103,7 +103,7 @@ Background / narrative (blog): [reyn.id — CFEG](https://reyn.id/posts/cf-email
 | **R2** | Optional MIME archive |
 | **Email Routing** | Catch-all → Worker name `cf-email-gateway` |
 | **SMTP** (e.g. your ESP) | Compose, reply hop, send-proxy (DATA, 1:1 bodies) |
-| **Secrets** | `ROUTING_YAML`, `SMTP_*`, optional `COMPOSE_API_TOKEN` |
+| **Secrets** | `ROUTING_YAML`, provider `${SECRET}` refs (e.g. `SMTP_PRIMARY_*`), optional `COMPOSE_API_TOKEN` |
 
 Config is **YAML you control** (example in-repo for copy-paste; **live value must be Worker secret `ROUTING_YAML`** — no silent example fallback). Synthetic fixtures only in git (`example.com` / `me@gmail.com`).
 
@@ -126,7 +126,7 @@ npm install && npm test
 3. `npx wrangler d1 migrations apply cf-email-gateway --remote`
 4. Copy [`config/routing.example.yaml`](config/routing.example.yaml) → local file →  
    `npx wrangler secret put ROUTING_YAML < config/routing.local.yaml`
-5. Secrets: `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` (+ optional `SMTP_PORT`, `COMPOSE_API_TOKEN`)
+5. Outbound: enable `providers:` + `defaults.provider` in routing YAML (see example); put matching secrets for each `${SECRET_NAME}` ref (e.g. `SMTP_PRIMARY_USERNAME` / `SMTP_PRIMARY_PASSWORD`). Optional `COMPOSE_API_TOKEN`.
 6. `npx wrangler deploy`
 7. Email Routing catch-all → Worker **`cf-email-gateway`**
 8. Smoke: `GET /health` must show `"routing_ok":true`, then authenticated smtp-selftest / compose, then a real inbound

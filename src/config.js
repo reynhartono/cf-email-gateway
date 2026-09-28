@@ -227,8 +227,8 @@ export function normalizeConfig(raw) {
   const providers = normalizeProviders(raw.providers);
   const providerNames = providers ? new Set(Object.keys(providers)) : null;
   // Breaking change (issue #37): with a `providers:` map, `provider`
-  // names a key in that map everywhere. Without one, the legacy global
-  // SMTP_* env path applies and `defaults.provider` keeps its old label.
+  // names a key in that map and is required. Without the map, outbound
+  // fails closed (no free-standing global SMTP_* product path).
   if (providerNames) {
     const dp = defaults.provider != null ? String(defaults.provider).trim() : "";
     if (!dp) {

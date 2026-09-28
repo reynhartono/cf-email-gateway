@@ -1,5 +1,5 @@
 import * as db from "./db.js";
-import { archiveEnabled } from "./config.js";
+import { archiveEnabled, resolveProviderName } from "./config.js";
 import { dedupeKeyHex, randomId } from "./util.js";
 import { putArchive } from "./archive.js";
 import { sendOutboundMime } from "./providers/send_outbound.js";
@@ -155,11 +155,17 @@ export async function handleSendProxy(env, message, config, hooks, ctx) {
     }
   }
 
+  let selectedProvider = null;
+  try {
+    selectedProvider = resolveProviderName(config, resolved.mailFrom);
+  } catch {
+    /* outbound will fail closed; leave null */
+  }
   const destinations = [
     {
       email: proxy.rcptEmail,
       method: "provider_send",
-      provider: "smtp",
+      provider: selectedProvider,
       send_as: resolved.mailFrom,
     },
   ];
@@ -210,7 +216,7 @@ export async function handleSendProxy(env, message, config, hooks, ctx) {
       success: result.ok,
       error: result.error || null,
       method: "provider_send",
-      provider: result.provider ?? "smtp",
+      provider: result.provider ?? selectedProvider,
       send_as: resolved.mailFrom,
       provider_message_id: result.providerMessageId || null,
       provider_status:
@@ -221,7 +227,7 @@ export async function handleSendProxy(env, message, config, hooks, ctx) {
       await db.updateTarget(env.DB, t.id, {
         state: "succeeded",
         attempt_count: attemptNumber,
-        provider: result.provider ?? "smtp",
+        provider: result.provider ?? selectedProvider,
         last_error: null,
         last_provider_message_id: result.providerMessageId || null,
         last_attempt_at: finished,
@@ -232,7 +238,7 @@ export async function handleSendProxy(env, message, config, hooks, ctx) {
       await db.updateTarget(env.DB, t.id, {
         state: "failed",
         attempt_count: attemptNumber,
-        provider: result.provider ?? "smtp",
+        provider: result.provider ?? selectedProvider,
         last_error: result.error || "smtp_failed",
         last_attempt_at: finished,
       });
