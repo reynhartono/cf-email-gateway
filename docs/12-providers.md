@@ -15,29 +15,30 @@ fields and the legacy globals are ignored for sends.
 
 ```yaml
 providers:
-  main:
-    kind: smtp   # only smtp in this cut; unknown kinds fail closed at load
+  # Keys are operator-chosen IDs (not brands, not the transport kind).
+  primary_submission:
+    kind: smtp   # transport kind only; unknown kinds fail closed at load
     config:
       host: mail.example.com
       port: 465
-      username: ${SMTP_MAIN_USERNAME}
-      password: ${SMTP_MAIN_PASSWORD}
-  other:
+      username: ${SMTP_PRIMARY_USERNAME}
+      password: ${SMTP_PRIMARY_PASSWORD}
+  alt_submission:
     kind: smtp
     config:
       host: smtp.other.example.com
       port: 587
       username: plain-user
-      password: ${SMTP_OTHER_PASSWORD}
+      password: ${SMTP_ALT_PASSWORD}
 defaults:
-  provider: main
+  provider: primary_submission
 domains:
   example.com:
     send_as: { enabled: true }
-    provider: main
+    provider: primary_submission
   other.example.com:
     send_as: { enabled: true }
-    provider: other
+    provider: alt_submission
 ```
 
 Selection for every outbound send (compose, send-proxy, reply hop) is read off
@@ -48,11 +49,11 @@ to the legacy globals. The resolved provider **name** (never secrets) is
 recorded per send — `delivery_targets.provider`, attempt rows, and the
 compose/selftest JSON `provider` field.
 
-`defaults.provider` previously carried the delivery-driver label (`smtp`); it
-now names a key in `providers:`. Migration: configs without a `providers:` map
-keep working on the legacy path, but once you add the map an old
-`provider: smtp` label is read as a selection — rename it or name a provider
-`smtp`.
+`defaults.provider` previously carried a delivery-driver label (`smtp`); it
+now names a key in `providers:` (an operator-chosen ID, not `kind`). Migration:
+configs without a `providers:` map keep working on the legacy path, but once
+you add the map an old `provider: smtp` label is read as a selection — rename
+the selection (e.g. to `primary_submission`) or name a provider key `smtp`.
 
 ### `${SECRET_NAME}` references
 
