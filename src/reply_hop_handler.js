@@ -292,6 +292,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       await db.updateTarget(env.DB, t.id, {
         state: "failed",
         attempt_count: attemptNumber,
+        provider: result.provider ?? "smtp",
         last_error: result.error || "fail",
         last_attempt_at: finished,
       });

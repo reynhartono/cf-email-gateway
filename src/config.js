@@ -137,6 +137,17 @@ function normalizeProviders(raw) {
         throw new Error(`routing config: ${where}.config: unknown field ${JSON.stringify(k)}`);
       }
     }
+    // Strict scalar shapes: refs are strings, so string-only fields stay
+    // strings; only port also accepts a YAML number. Objects/arrays must
+    // never reach the send path as credentials.
+    for (const f of ["host", "username", "password", "tls"]) {
+      if (cfg[f] != null && typeof cfg[f] !== "string") {
+        throw new Error(`routing config: ${where}.config.${f} must be a string`);
+      }
+    }
+    if (cfg.port != null && typeof cfg.port !== "string" && typeof cfg.port !== "number") {
+      throw new Error(`routing config: ${where}.config.port must be a string or number`);
+    }
     // host is the only non-secret field that must always be present
     // (as a literal or a ${REF} — resolution happens at send time).
     if (cfg.host == null || String(cfg.host).trim() === "") {
@@ -218,15 +229,15 @@ export function normalizeConfig(raw) {
   // names a key in that map everywhere. Without one, the legacy global
   // SMTP_* env path applies and `defaults.provider` keeps its old label.
   if (providerNames) {
-    const dp = defaults.provider;
-    if (dp == null || String(dp).trim() === "") {
+    const dp = defaults.provider != null ? String(defaults.provider).trim() : "";
+    if (!dp) {
       throw new Error(
         "routing config: defaults.provider is required when providers: is present",
       );
     }
-    if (!providerNames.has(String(dp))) {
+    if (!providerNames.has(dp)) {
       throw new Error(
-        `routing config: unknown provider ${JSON.stringify(String(dp))} in defaults.provider`,
+        `routing config: unknown provider ${JSON.stringify(dp)} in defaults.provider`,
       );
     }
   }
@@ -260,12 +271,12 @@ export function normalizeConfig(raw) {
             `routing config: domains.${k}.provider must be a non-empty string`,
           );
         }
+        d.provider = d.provider.trim();
         if (providerNames && !providerNames.has(d.provider)) {
           throw new Error(
             `routing config: unknown provider ${JSON.stringify(d.provider)} in domains.${k}.provider`,
           );
         }
-        d.provider = d.provider.trim();
       } else {
         delete d.provider;
       }

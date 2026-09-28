@@ -169,11 +169,32 @@ function overlayProviderEnv(provider, name, env) {
     SMTP_USERNAME: cfg.username,
     SMTP_PASSWORD: cfg.password,
   };
+  // Isolation: a provider that omits port:/tls: must not inherit
+  // migration-era global SMTP_PORT/SMTP_TLS (wrong port/TLS mode).
+  delete overlay.SMTP_PORT;
+  delete overlay.SMTP_TLS;
   if (cfg.port != null && String(cfg.port).trim() !== "") {
-    overlay.SMTP_PORT = cfg.port;
+    // Validate after resolution with a name-only error: smtp.js echoes
+    // bad SMTP_PORT/SMTP_TLS values into result errors (API JSON + D1),
+    // which would leak ref-resolved secret content.
+    const n = Number(cfg.port);
+    if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+      return {
+        ok: false,
+        error: `provider "${name}": invalid resolved port for ${where}.port (expected 1-65535)`,
+      };
+    }
+    overlay.SMTP_PORT = n;
   }
   if (cfg.tls != null && String(cfg.tls).trim() !== "") {
-    overlay.SMTP_TLS = cfg.tls;
+    const v = String(cfg.tls).trim().toLowerCase();
+    if (v !== "on" && v !== "starttls") {
+      return {
+        ok: false,
+        error: `provider "${name}": invalid resolved tls for ${where}.tls (expected "on" or "starttls")`,
+      };
+    }
+    overlay.SMTP_TLS = v;
   }
   return { ok: true, env: overlay };
 }

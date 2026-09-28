@@ -10,6 +10,12 @@
  * secrets resolve at send time to `{ ok: false }` — never an empty
  * credential on the wire. Resolved values are never logged; only the
  * secret NAME (never its content) may appear in errors.
+ *
+ * Intentional asymmetry: `${X}suffix` (whole value opens with `$...{`)
+ * throws, while `prefix${X}` is a silent literal — only whole-value
+ * matches are special, so a stray `${` mid-string can never trigger a
+ * lookup. A mistyped ref in the literal position fails later at send
+ * time (bad credential), still fail-closed, never misrouted.
  */
 
 const REF_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;

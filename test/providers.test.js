@@ -331,6 +331,79 @@ providers:
     assert.equal(r.env.SMTP_TLS, "starttls");
   });
 
+  it("does not inherit global SMTP_PORT/SMTP_TLS when provider omits them", () => {
+    const c = load(`
+version: 1
+defaults: { provider: a }
+providers:
+  a:
+    kind: smtp
+    config: { host: a.example, username: u, password: p }
+`);
+    const r = selectProviderEnv(c, "x@example.com", {
+      SMTP_PORT: "587",
+      SMTP_TLS: "starttls",
+      SMTP_HOST: "legacy.example",
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.env.SMTP_HOST, "a.example");
+    assert.equal(r.env.SMTP_PORT, undefined);
+    assert.equal(r.env.SMTP_TLS, undefined);
+  });
+
+  it("rejects bad resolved port/tls without echoing secret content", () => {
+    const c = load(`
+version: 1
+defaults: { provider: a }
+providers:
+  a:
+    kind: smtp
+    config:
+      host: a.example
+      port: \${PORT_SECRET}
+      username: u
+      password: p
+`);
+    const badPort = selectProviderEnv(c, "x@example.com", {
+      PORT_SECRET: "not-a-port",
+    });
+    assert.equal(badPort.ok, false);
+    assert.match(badPort.error, /invalid resolved port/);
+    assert.doesNotMatch(badPort.error, /not-a-port/);
+
+    const cTls = load(`
+version: 1
+defaults: { provider: a }
+providers:
+  a:
+    kind: smtp
+    config:
+      host: a.example
+      tls: \${TLS_SECRET}
+      username: u
+      password: p
+`);
+    const badTls = selectProviderEnv(cTls, "x@example.com", {
+      TLS_SECRET: "plaintext-leak-candidate",
+    });
+    assert.equal(badTls.ok, false);
+    assert.match(badTls.error, /invalid resolved tls/);
+    assert.doesNotMatch(badTls.error, /plaintext-leak-candidate/);
+  });
+
+  it("rejects non-string host/username/password at load", () => {
+    assert.throws(
+      () =>
+        load(`
+version: 1
+defaults: { provider: m }
+providers:
+  m: { kind: smtp, config: { host: { secret: X }, username: u, password: p } }
+`),
+      /config\.host must be a string/,
+    );
+  });
+
   it("fails closed on missing secrets without connecting", () => {
     const c = load();
     const r = selectProviderEnv(c, "shops@example.com", {});
