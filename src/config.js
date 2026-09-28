@@ -10,6 +10,7 @@ import {
   matchClaimsReservedLocal,
   splitEnvelopeTo,
 } from "./util.js";
+import { bareEmail } from "./providers/smtp.js";
 
 /** Feature gates (product surface) */
 export const FEATURES = {
@@ -272,7 +273,12 @@ export function normalizeConfig(raw) {
           );
         }
         d.provider = d.provider.trim();
-        if (providerNames && !providerNames.has(d.provider)) {
+        if (!providerNames) {
+          throw new Error(
+            `routing config: domains.${k}.provider requires providers: map`,
+          );
+        }
+        if (!providerNames.has(d.provider)) {
           throw new Error(
             `routing config: unknown provider ${JSON.stringify(d.provider)} in domains.${k}.provider`,
           );
@@ -383,7 +389,10 @@ export function resolveProviderName(config, mailFrom) {
   if (!names.length) {
     throw new Error("routing config: providers map is empty");
   }
-  const apex = recipientDomain(mailFrom || "");
+  // Bare-normalize first: display/angle-addr From must not yield apex
+  // "example.com>" and skip domains.<apex>.provider (issue #37 review).
+  const bare = bareEmail(mailFrom) || String(mailFrom || "").trim();
+  const apex = recipientDomain(bare);
   const selected =
     (apex && config.domains?.[apex]?.provider) || config.defaults?.provider;
   if (typeof selected !== "string" || !providers[selected]) {

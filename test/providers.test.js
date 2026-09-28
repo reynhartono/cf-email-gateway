@@ -256,6 +256,19 @@ domains:
     );
   });
 
+  it("rejects domains.*.provider when providers: is absent", () => {
+    assert.throws(
+      () =>
+        load(`
+version: 1
+default_inbox: me@gmail.com
+domains:
+  example.com: { provider: main }
+`),
+      /domains\.example\.com\.provider requires providers:/,
+    );
+  });
+
   it("rejects malformed reference shapes at load", () => {
     assert.throws(
       () =>
@@ -280,6 +293,18 @@ describe("resolveProviderName", () => {
     assert.equal(resolveProviderName(c, "shops@example.com"), "main");
     assert.equal(resolveProviderName(c, "shops@other.example.com"), "other");
     assert.equal(resolveProviderName(c, "shops@unlisted.example"), "main");
+  });
+
+  it("selects from angle-addr / display-form From (bare-normalized)", () => {
+    const c = load();
+    assert.equal(
+      resolveProviderName(c, "Shop Name <shops@other.example.com>"),
+      "other",
+    );
+    assert.equal(
+      resolveProviderName(c, "shops@example.com"),
+      "main",
+    );
   });
 
   it("returns null for legacy configs (global SMTP_* path)", () => {

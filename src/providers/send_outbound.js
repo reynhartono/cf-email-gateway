@@ -163,9 +163,16 @@ function overlayProviderEnv(provider, name, env) {
   const resolved = resolveConfigRefs(provider?.config, env, where);
   if (!resolved.ok) return resolved;
   const cfg = resolved.config || {};
+  const host = cfg.host != null ? String(cfg.host).trim() : "";
+  if (!host) {
+    return {
+      ok: false,
+      error: `provider "${name}": host missing or empty after secret resolution`,
+    };
+  }
   const overlay = {
     ...env,
-    SMTP_HOST: cfg.host,
+    SMTP_HOST: host,
     SMTP_USERNAME: cfg.username,
     SMTP_PASSWORD: cfg.password,
   };

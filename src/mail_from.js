@@ -84,7 +84,7 @@ export function sendAsAllowed(config, domain) {
  * @returns {{ ok: true, mailFrom: string, sendAs: object } | { ok: false, error: string }}
  */
 export function resolveMailFrom(config, fromAddress) {
-  const from = String(fromAddress || "").trim().toLowerCase();
+  const from = bareMailboxAddress(fromAddress);
   if (!from || !from.includes("@")) {
     return { ok: false, error: "from address required" };
   }
