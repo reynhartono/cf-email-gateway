@@ -391,8 +391,9 @@ export function resolveProviderName(config, mailFrom) {
   }
   // Bare-normalize first: display/angle-addr From must not yield apex
   // "example.com>" and skip domains.<apex>.provider (issue #37 review).
-  const bare = bareEmail(mailFrom) || String(mailFrom || "").trim();
-  const apex = recipientDomain(bare);
+  // Empty bare → empty apex → defaults.provider only (never garbage apex).
+  const bare = bareEmail(mailFrom);
+  const apex = recipientDomain(bare || "");
   const selected =
     (apex && config.domains?.[apex]?.provider) || config.defaults?.provider;
   if (typeof selected !== "string" || !providers[selected]) {
