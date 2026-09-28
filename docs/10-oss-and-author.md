@@ -12,7 +12,7 @@
 | Piece | Where |
 |-------|--------|
 | Routing | wrangler secret `ROUTING_YAML` and/or gitignored `config/routing.local.yaml` |
-| SMTP / compose | wrangler secrets (`SMTP_*`, `COMPOSE_API_TOKEN`) |
+| Outbound / compose | `providers:` in `ROUTING_YAML` + wrangler secrets for each `${SECRET_NAME}` ref (e.g. `SMTP_PRIMARY_*`); optional `COMPOSE_API_TOKEN`. No free-standing `SMTP_HOST` product path. |
 | CF account / D1 ids | local `wrangler.toml` (from example); do not commit real values |
 | Catch-all → Worker | Email Routing dashboard or your infra IaC |
 | Agent host secrets | machine-local config (e.g. `~/.config/…`) |

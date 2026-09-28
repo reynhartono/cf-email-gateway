@@ -22,4 +22,4 @@ HTTP fetch()
 ```
 
 Bindings: **D1** (`DB`), **R2** (`ARCHIVE`).  
-Secrets: `ROUTING_YAML` (required), `SMTP_*`, `COMPOSE_API_TOKEN`.
+Secrets: `ROUTING_YAML` (required), provider `${SECRET}` refs (e.g. `SMTP_PRIMARY_*`; no free-standing `SMTP_HOST` path), optional `COMPOSE_API_TOKEN`.

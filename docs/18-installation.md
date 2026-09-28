@@ -250,7 +250,7 @@ Not required for archive/forward/compose/send-proxy.
 | `SMTP_<NAME>_USERNAME` / `SMTP_<NAME>_PASSWORD` (your names) | Outbound: one secret per `${SECRET_NAME}` ref in `providers:` (e.g. `SMTP_PRIMARY_USERNAME`, `SMTP_PRIMARY_PASSWORD`); missing/empty fails that provider closed. Host/port may be literals in YAML or refs too. No global `SMTP_HOST` product path. |
 | `COMPOSE_API_TOKEN` | `/v1/compose`, `/v1/smtp-selftest` |
 
-Breaking change: ports 25 and 80 now hard-error instead of connecting in plaintext — a plaintext-only relay on port 25 will break on upgrade (setting `SMTP_TLS` will not help unless the server actually speaks TLS there).
+Breaking change: ports 25 and 80 hard-error instead of connecting in plaintext — a plaintext-only relay on port 25 will break (setting `tls:` / overlay `SMTP_TLS` will not help unless the server actually speaks TLS on that port).
 
 ---
 
