@@ -1,5 +1,5 @@
 import * as db from "./db.js";
-import { archiveEnabled, resolveSendAs } from "./config.js";
+import { archiveEnabled, resolveProviderName, resolveSendAs } from "./config.js";
 import { dedupeKeyHex, randomId } from "./util.js";
 import { putArchive } from "./archive.js";
 import { sendOutboundMime } from "./providers/send_outbound.js";
@@ -216,10 +216,16 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
     }
   }
 
+  let selectedProvider = null;
+  try {
+    selectedProvider = resolveProviderName(config, mailFrom);
+  } catch {
+    /* outbound will fail closed; leave null */
+  }
   const destinations = dests.map((d) => ({
     email: d.email,
     method: "provider_send",
-    provider: "smtp",
+    provider: selectedProvider,
     send_as: mailFrom,
     display_hint: d.display_hint,
   }));
@@ -253,7 +259,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       fromName: fromDisplay || mailbox,
       to: t.destination,
       mimeText: mimeOut,
-    });
+    }, config);
     const finished = Date.now();
     await db.insertAttempt(env.DB, {
       id: randomId(),
@@ -266,7 +272,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       success: result.ok,
       error: result.error || null,
       method: "provider_send",
-      provider: "smtp",
+      provider: result.provider ?? selectedProvider,
       send_as: mailFrom,
       provider_message_id: result.providerMessageId || null,
       provider_status:
@@ -277,6 +283,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       await db.updateTarget(env.DB, t.id, {
         state: "succeeded",
         attempt_count: attemptNumber,
+        provider: result.provider ?? selectedProvider,
         last_error: null,
         last_provider_message_id: result.providerMessageId || null,
         last_attempt_at: finished,
@@ -291,6 +298,7 @@ export async function handleReplyHop(env, message, config, hooks, ctx) {
       await db.updateTarget(env.DB, t.id, {
         state: "failed",
         attempt_count: attemptNumber,
+        provider: result.provider ?? selectedProvider,
         last_error: result.error || "fail",
         last_attempt_at: finished,
       });

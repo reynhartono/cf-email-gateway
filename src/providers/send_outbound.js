@@ -3,6 +3,8 @@
  */
 
 import { smtpSend, hasSmtp, bareEmail } from "./smtp.js";
+import { resolveConfigRefs } from "../config_refs.js";
+import { resolveProviderName } from "../config.js";
 import { formatSmtpMailbox } from "../reply_tokens.js";
 
 /** @typedef {{ code: string, message: string, name: string }} ComposeMimeErrorShape */
@@ -146,6 +148,65 @@ function formatAddressListHeader(label, v) {
 }
 
 /**
+ * Build the effective SMTP env for one named provider (issue #37):
+ * `${SECRET_NAME}` refs resolved against env, then overlaid onto the
+ * legacy SMTP_* keys the SMTP client already reads. Only the secret NAME
+ * (never its content) may appear in errors.
+ *
+ * @param {object} provider — normalized `providers.<name>` entry
+ * @param {string} name
+ * @param {object} env
+ * @returns {{ ok: true, env: object } | { ok: false, error: string }}
+ */
+function overlayProviderEnv(provider, name, env) {
+  const where = `providers.${name}.config`;
+  const resolved = resolveConfigRefs(provider?.config, env, where);
+  if (!resolved.ok) return resolved;
+  const cfg = resolved.config || {};
+  const host = cfg.host != null ? String(cfg.host).trim() : "";
+  if (!host) {
+    return {
+      ok: false,
+      error: `provider "${name}": host missing or empty after secret resolution`,
+    };
+  }
+  const overlay = {
+    ...env,
+    SMTP_HOST: host,
+    SMTP_USERNAME: cfg.username,
+    SMTP_PASSWORD: cfg.password,
+  };
+  // Isolation: a provider that omits port:/tls: must not inherit
+  // migration-era global SMTP_PORT/SMTP_TLS (wrong port/TLS mode).
+  delete overlay.SMTP_PORT;
+  delete overlay.SMTP_TLS;
+  if (cfg.port != null && String(cfg.port).trim() !== "") {
+    // Validate after resolution with a name-only error: smtp.js echoes
+    // bad SMTP_PORT/SMTP_TLS values into result errors (API JSON + D1),
+    // which would leak ref-resolved secret content.
+    const n = Number(cfg.port);
+    if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+      return {
+        ok: false,
+        error: `provider "${name}": invalid resolved port for ${where}.port (expected 1-65535)`,
+      };
+    }
+    overlay.SMTP_PORT = n;
+  }
+  if (cfg.tls != null && String(cfg.tls).trim() !== "") {
+    const v = String(cfg.tls).trim().toLowerCase();
+    if (v !== "on" && v !== "starttls") {
+      return {
+        ok: false,
+        error: `provider "${name}": invalid resolved tls for ${where}.tls (expected "on" or "starttls")`,
+      };
+    }
+    overlay.SMTP_TLS = v;
+  }
+  return { ok: true, env: overlay };
+}
+
+/**
  * @param {object} env
  * @param {{
  *   mailFrom: string,
@@ -161,8 +222,12 @@ function formatAddressListHeader(label, v) {
  *   headers?: Record<string, string>,
  *   attachments?: Array<{ filename: string, contentType?: string, content: string }>,
  * }} req
+ * @param {import('../config.js').RoutingConfig} [config] — outbound requires a
+ *   `providers:` map; selection is `domains.<apex>.provider` →
+ *   `defaults.provider`. The low-level SMTP client still reads SMTP_* keys
+ *   on the *resolved* overlay env only (never a free-standing global path).
  */
-export async function sendOutboundMime(env, req) {
+export async function sendOutboundMime(env, req, config) {
   let mimeText =
     req.mimeText ||
     (req.rawMimeBase64
@@ -205,21 +270,90 @@ export async function sendOutboundMime(env, req) {
     };
   }
 
-  if (!hasSmtp(env)) {
+  // Named providers only (issue #37 scrub): no free-standing global SMTP_* path.
+  if (!config?.providers || !Object.keys(config.providers).length) {
     return {
       ok: false,
       error:
-        "SMTP not configured (need SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD)",
+        "outbound requires providers: map in routing config " +
+        "(legacy global SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD path removed)",
       transport: "smtp",
+      provider: null,
     };
   }
 
-  const result = await smtpSend(env, {
+  const sel = selectProviderEnv(config, req.mailFrom, env);
+  if (!sel.ok) {
+    return {
+      ok: false,
+      error: sel.error,
+      transport: "smtp",
+      provider: sel.name,
+    };
+  }
+  const sendEnv = sel.env;
+  const providerName = sel.name;
+
+  if (!hasSmtp(sendEnv)) {
+    return {
+      ok: false,
+      error: hasSmtpError(providerName),
+      transport: "smtp",
+      provider: providerName,
+    };
+  }
+
+  const result = await smtpSend(sendEnv, {
     mailFrom: req.mailFrom,
     to: toBare,
     mimeText,
   });
-  return { ...result, transport: "smtp" };
+  return { ...result, transport: "smtp", provider: providerName };
+}
+
+/**
+ * Select the named provider for a mailFrom and build its effective SMTP
+ * env (issue #37). Exported for unit tests; `sendOutboundMime` is the
+ * product path.
+ *
+ * @param {import('../config.js').RoutingConfig} config
+ * @param {string} mailFrom
+ * @param {object} env
+ * @returns {{ ok: true, name: string, env: object } | { ok: false, name: string | null, error: string }}
+ */
+export function selectProviderEnv(config, mailFrom, env) {
+  if (!config?.providers || !Object.keys(config.providers).length) {
+    return {
+      ok: false,
+      name: null,
+      error:
+        "outbound requires providers: map in routing config " +
+        "(legacy global SMTP_* path removed)",
+    };
+  }
+  let selected;
+  try {
+    selected = resolveProviderName(config, mailFrom);
+  } catch (err) {
+    return { ok: false, name: null, error: err?.message || "unknown provider" };
+  }
+  const overlay = overlayProviderEnv(config.providers[selected], selected, env);
+  if (!overlay.ok) return { ok: false, name: selected, error: overlay.error };
+  return { ok: true, name: selected, env: overlay.env };
+}
+
+/**
+ * Missing-credential error naming the selected provider (name only —
+ * never secret content).
+ */
+function hasSmtpError(providerName) {
+  if (providerName) {
+    return (
+      `SMTP not configured for provider "${providerName}" ` +
+      `(check its host/username/password or referenced secrets)`
+    );
+  }
+  return "SMTP not configured (providers: map required)";
 }
 
 /**

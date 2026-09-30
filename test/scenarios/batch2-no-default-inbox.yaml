@@ -3,7 +3,6 @@ version: 1
 archive:
   enabled: true
 defaults:
-  provider: smtp
   send_as:
     enabled: false
 token_auth:

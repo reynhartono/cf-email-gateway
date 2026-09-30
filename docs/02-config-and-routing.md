@@ -19,7 +19,9 @@ compose:
 reply_tokens:
   enabled: true
 defaults:
-  provider: smtp
+  # With providers: map — operator-chosen ID (e.g. primary_smtp_server), not kind.
+  # Without the map — outbound unavailable (no global SMTP_* path).
+  # provider: primary_smtp_server
   send_as:
     enabled: false
     multiparty: true
@@ -89,6 +91,16 @@ rules:
 4. **`defaults.display_name`** — global fallback  
 
 **`catch_all` rules are ignored** for From display. A matched address/prefix rule **without** `display_name` does not block fallthrough to domain/defaults. Values cannot contain header control characters.
+
+## providers (named outbound senders)
+
+Required for outbound: `providers:` map (domain A → provider X, domain B →
+Y). Keys are **operator-chosen IDs** (e.g. `primary_smtp_server`) — not brands
+and not the transport `kind`. Selection per send off the final From apex:
+`domains.<apex>.provider` → `defaults.provider` (required with the map). Any
+`config` string may be a literal or a whole-value `${SECRET_NAME}` ref. No
+free-standing global `SMTP_*` product path. Full contract:
+[12-providers.md](./12-providers.md).
 
 ## resolve_driver
 

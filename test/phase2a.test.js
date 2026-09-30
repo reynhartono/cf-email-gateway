@@ -210,13 +210,13 @@ describe("generic smtp outbound", () => {
     assert.match(r.error, /to|CRLF|header|control/i);
   });
 
-  it("sendOutboundMime fails without SMTP secrets", async () => {
+  it("sendOutboundMime fails without providers: map", async () => {
     const r = await sendOutboundMime(
       {},
       { to: "a@b.com", mailFrom: "me@example.com", subject: "x", text: "y" },
     );
     assert.equal(r.ok, false);
-    assert.match(r.error, /SMTP/);
+    assert.match(r.error, /providers:\s*map required|requires providers:/);
   });
 });
 

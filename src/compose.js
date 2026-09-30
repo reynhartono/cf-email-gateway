@@ -8,7 +8,7 @@ import {
   assertNoHeaderControlChars,
   sendOutboundMime,
 } from "./providers/send_outbound.js";
-import { bareEmail, hasSmtp } from "./providers/smtp.js";
+import { bareEmail } from "./providers/smtp.js";
 import { randomId } from "./util.js";
 import {
   identityMaySendAs,
@@ -94,7 +94,7 @@ export async function handleCompose(request, env, config) {
     html: body.html,
     headers: body.headers,
     attachments: attachments.length ? attachments : undefined,
-  });
+  }, config);
 
   const id = randomId();
   if (!result.ok) {
@@ -107,6 +107,7 @@ export async function handleCompose(request, env, config) {
         compose_id: id,
         mail_from: resolved.mailFrom,
         identity: caller.identity.id,
+        provider: result.provider ?? null,
         provider_status: result.providerStatus,
       },
       status,
@@ -118,6 +119,7 @@ export async function handleCompose(request, env, config) {
     compose_id: id,
     mail_from: resolved.mailFrom,
     identity: caller.identity.id,
+    provider: result.provider ?? null,
     provider_message_id: result.providerMessageId,
   });
 }
@@ -151,20 +153,22 @@ async function handleSmtpSelftest(request, env, config) {
   if (authErr) return authErr;
 
   const present = {
-    SMTP_HOST: Boolean(env.SMTP_HOST),
-    SMTP_USERNAME: Boolean(env.SMTP_USERNAME || env.SMTP_USER),
-    SMTP_PASSWORD: Boolean(env.SMTP_PASSWORD || env.SMTP_PASS),
-    SMTP_PORT: env.SMTP_PORT || "465",
-    hasSmtp: hasSmtp(env),
+    hasProviders: Boolean(
+      config?.providers && Object.keys(config.providers).length,
+    ),
+    providerNames: config?.providers
+      ? Object.keys(config.providers)
+      : [],
+    defaultsProvider: config?.defaults?.provider ?? null,
   };
 
-  if (!present.hasSmtp) {
+  if (!present.hasProviders) {
     return json(
       {
         ok: false,
-        error: "SMTP secrets missing",
+        error: "providers: map missing in routing config",
         present,
-        hint: "SMTP_HOST + SMTP_USERNAME + SMTP_PASSWORD",
+        hint: "add providers: + defaults.provider; put host/user/pass under config (use ${SECRET} refs)",
       },
       503,
     );
@@ -232,12 +236,13 @@ async function handleSmtpSelftest(request, env, config) {
     mailFrom: from,
     to,
     mimeText: mime,
-  });
+  }, config);
 
   return json({
     ok: Boolean(result.ok),
     present,
     transport: result.transport,
+    provider: result.provider ?? null,
     provider_message_id: result.providerMessageId,
     error: result.error || null,
     to,

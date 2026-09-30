@@ -1,14 +1,13 @@
 /**
  * Generic SMTP client via cloudflare:sockets (RFC5321 DATA).
  *
- * Secrets (required):
- *   SMTP_USERNAME
- *   SMTP_PASSWORD
- * Optional:
- *   SMTP_HOST   (default mail.smtp2go.com — set explicitly for your ESP)
- *   SMTP_PORT   (default 465 = implicit TLS)
- *   SMTP_TLS    (optional explicit override: "on" | "starttls" for rare ports)
- *   SMTP_TIMEOUT_MS (default 20000)
+ * Product path builds a per-provider overlay env from routing `providers:`
+ * (`send_outbound.overlayProviderEnv`). This module only reads the resolved
+ * keys on that overlay — there is no free-standing global SMTP_* product path.
+ *
+ * Overlay keys (required): SMTP_HOST, SMTP_USERNAME (or SMTP_USER),
+ * SMTP_PASSWORD (or SMTP_PASS). Optional: SMTP_PORT (default 465),
+ * SMTP_TLS ("on" | "starttls"), SMTP_TIMEOUT_MS (default 20000).
  *
  * TLS is fail-closed: ports outside the known implicit-TLS / STARTTLS lists
  * return ok:false instead of connecting in plaintext. Port 80 is not a

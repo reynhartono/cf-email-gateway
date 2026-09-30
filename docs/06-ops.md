@@ -6,8 +6,10 @@ Day-2 notes. **First-time install:** [18-installation.md](./18-installation.md).
 
 ```bash
 npx wrangler secret put ROUTING_YAML < config/routing.local.yaml
-printf '%s' 'mail.example.com' | npx wrangler secret put SMTP_HOST
-# … SMTP_USERNAME / SMTP_PASSWORD / COMPOSE_API_TOKEN as needed
+# secrets named by your providers.*.config ${REF}s, e.g.:
+printf '%s' 'smtp-user' | npx wrangler secret put SMTP_PRIMARY_USERNAME
+printf '%s' 'smtp-pass' | npx wrangler secret put SMTP_PRIMARY_PASSWORD
+# … COMPOSE_API_TOKEN as needed
 npx wrangler deploy
 ```
 
