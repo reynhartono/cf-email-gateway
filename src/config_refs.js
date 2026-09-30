@@ -1,5 +1,9 @@
 /**
- * Whole-value `${SECRET_NAME}` references for provider config.
+ * Whole-value `${SECRET_NAME}` references for routing YAML string leaves.
+ *
+ * Generic config primitive (not provider-selection logic). Today the only
+ * product call site is `providers.<id>.config`; keep the helper here so
+ * config load does not depend on `src/providers/`.
  *
  * A config string is a reference if and only if the ENTIRE value matches
  * `${NAME}` — no partial expansion, so stray `$` characters in real

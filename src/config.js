@@ -4,7 +4,7 @@
 
 import YAML from "yaml";
 import { normalizeIdentities } from "./identity.js";
-import { assertRefShapes, classifyRef } from "./providers/provider_refs.js";
+import { assertRefShapes, classifyRef } from "./config_refs.js";
 import {
   isReservedPersonLocal,
   matchClaimsReservedLocal,

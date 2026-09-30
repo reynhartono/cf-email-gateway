@@ -6,7 +6,7 @@ import {
   classifyRef,
   resolveConfigRefs,
   resolveRefValue,
-} from "../src/providers/provider_refs.js";
+} from "../src/config_refs.js";
 import {
   selectProviderEnv,
   sendOutboundMime,

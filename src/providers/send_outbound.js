@@ -3,7 +3,7 @@
  */
 
 import { smtpSend, hasSmtp, bareEmail } from "./smtp.js";
-import { resolveConfigRefs } from "./provider_refs.js";
+import { resolveConfigRefs } from "../config_refs.js";
 import { resolveProviderName } from "../config.js";
 import { formatSmtpMailbox } from "../reply_tokens.js";
 
